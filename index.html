@@ -1,0 +1,1737 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perimeter LED on Camera</title>
+<meta name="description" content="How PWM operation, system frame timing and camera exposure interact to determine the on-camera appearance of a 50 Hz LED perimeter display.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+/* ============================================================= TOKENS */
+:root{
+  color-scheme: light;
+  --bg:#eceff2;
+  --surface:#fbfcfd;
+  --surface-2:#f2f5f7;
+  --sunken:#e9edf0;
+  --ink:#12171d;
+  --ink-2:#4c5763;
+  --ink-3:#78838d;
+  --line:#d6dce1;
+  --line-2:#e4e9ec;
+  --trace:#0b6f79;
+  --trace-2:#0a5f68;
+  --trace-soft:#e0eff0;
+  --expo:#a9640f;
+  --expo-soft:#f6ecdd;
+  --warn:#a93a30;
+  --warn-soft:#f6e4e2;
+  --ok:#0f7038;
+  --ok-soft:#e2efe6;
+  --shadow: 0 1px 2px rgba(16,23,33,.05), 0 10px 30px -14px rgba(16,23,33,.16);
+  --shadow-sm: 0 1px 2px rgba(16,23,33,.06);
+  --maxw: 1180px;
+  --readw: 68ch;
+
+  /* instrument panels — fixed, theme-independent (a scope has no light mode) */
+  --scope-bg:#0a0e12;
+  --scope-bg-2:#0c1218;
+  --scope-panel:#0f151b;
+  --scope-grid:rgba(122,150,160,.15);
+  --scope-grid-strong:rgba(122,150,160,.28);
+  --scope-ink:#c9d5d8;
+  --scope-ink-dim:#7e8e92;
+  --scope-trace:#37c2cc;
+  --scope-trace-glow:rgba(55,194,204,.28);
+  --scope-expo:#e0a24c;
+  --scope-expo-fill:rgba(224,162,76,.16);
+  --scope-warn:#e1685b;
+  --scope-ok:#4fbf7f;
+  --scope-line:rgba(201,213,216,.16);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#0b0e12;
+    --surface:#141a20;
+    --surface-2:#0f151a;
+    --sunken:#0c1116;
+    --ink:#e7ecf0;
+    --ink-2:#9faab5;
+    --ink-3:#6b7681;
+    --line:#252d36;
+    --line-2:#1b222a;
+    --trace:#3cb7c1;
+    --trace-2:#57c7cf;
+    --trace-soft:#122a2c;
+    --expo:#e0a24c;
+    --expo-soft:#2a2013;
+    --warn:#e1685b;
+    --warn-soft:#2b1a18;
+    --ok:#3aae6b;
+    --ok-soft:#15251c;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 16px 40px -18px rgba(0,0,0,.6);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0b0e12;
+  --surface:#141a20;
+  --surface-2:#0f151a;
+  --sunken:#0c1116;
+  --ink:#e7ecf0;
+  --ink-2:#9faab5;
+  --ink-3:#6b7681;
+  --line:#252d36;
+  --line-2:#1b222a;
+  --trace:#3cb7c1;
+  --trace-2:#57c7cf;
+  --trace-soft:#122a2c;
+  --expo:#e0a24c;
+  --expo-soft:#2a2013;
+  --warn:#e1685b;
+  --warn-soft:#2b1a18;
+  --ok:#3aae6b;
+  --ok-soft:#15251c;
+  --shadow: 0 1px 2px rgba(0,0,0,.35), 0 16px 40px -18px rgba(0,0,0,.6);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+}
+
+/* ============================================================= RESET */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  font-size:17px;
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+img{max-width:100%;display:block}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-weight:600;line-height:1.2;text-wrap:balance;margin:0}
+a{color:var(--trace);text-underline-offset:2px;text-decoration-thickness:1px}
+a:hover{color:var(--trace-2)}
+code,kbd,samp{font-family:"IBM Plex Mono",ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace}
+:focus-visible{outline:2px solid var(--trace);outline-offset:2px;border-radius:2px}
+::selection{background:var(--trace);color:#fff}
+
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+.eyebrow{
+  font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:500;
+}
+
+/* ============================================================= APP BAR */
+.appbar{
+  position:sticky;top:0;z-index:40;
+  display:flex;align-items:center;gap:1rem;
+  height:56px;padding:0 clamp(1rem,4vw,2.5rem);
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.appbar .brand{
+  font-family:"IBM Plex Sans",system-ui,sans-serif;font-weight:600;font-size:.95rem;
+  letter-spacing:-.01em;display:flex;align-items:center;gap:.55rem;color:var(--ink);
+}
+.appbar .brand svg{flex:none}
+.appbar .spacer{flex:1}
+.appbar button{
+  font-family:"IBM Plex Mono",monospace;font-size:.74rem;letter-spacing:.04em;
+  background:var(--surface);color:var(--ink-2);
+  border:1px solid var(--line);border-radius:7px;
+  padding:.42rem .6rem;cursor:pointer;display:inline-flex;align-items:center;gap:.4rem;
+}
+.appbar button:hover{color:var(--ink);border-color:var(--ink-3)}
+.toc-toggle{display:none}
+
+/* ============================================================= SHELL */
+.shell{
+  max-width:var(--maxw);margin:0 auto;
+  padding:0 clamp(1rem,4vw,2.5rem);
+  display:grid;grid-template-columns:232px minmax(0,1fr);
+  gap:clamp(1.5rem,5vw,4rem);
+  align-items:start;
+}
+
+/* ============================================================= TOC */
+.toc{position:sticky;top:72px;align-self:start;max-height:calc(100vh - 96px);overflow-y:auto;padding:1.5rem 0 3rem;font-family:"IBM Plex Sans",system-ui,sans-serif}
+.toc h2{font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin-bottom:.85rem}
+.toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.1rem}
+.toc a{
+  display:grid;grid-template-columns:1.9rem 1fr;gap:.5rem;
+  padding:.34rem .5rem;border-radius:6px;
+  font-size:.83rem;line-height:1.3;color:var(--ink-2);text-decoration:none;
+  border-left:2px solid transparent;
+}
+.toc a .n{font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--ink-3);padding-top:.1rem}
+.toc a:hover{background:var(--surface-2);color:var(--ink)}
+.toc a[aria-current="true"]{background:var(--trace-soft);color:var(--ink);border-left-color:var(--trace)}
+.toc a[aria-current="true"] .n{color:var(--trace)}
+
+/* ============================================================= MAIN */
+main{min-width:0;padding-bottom:6rem}
+section{scroll-margin-top:76px;padding:3.2rem 0;border-top:1px solid var(--line-2)}
+section:first-of-type{border-top:none}
+.prose{max-width:var(--readw)}
+.prose p,.prose ul,.prose ol{margin:1rem 0}
+.prose li{margin:.35rem 0}
+.prose h2{font-size:clamp(1.5rem,3.4vw,2rem);letter-spacing:-.02em;margin:.4rem 0 1.1rem}
+.prose h3{font-size:1.18rem;margin:2rem 0 .5rem;letter-spacing:-.01em}
+.prose h4{font-size:1rem;font-weight:600;margin:1.4rem 0 .3rem;color:var(--ink)}
+.prose strong{font-weight:600;color:var(--ink)}
+.prose code{background:var(--surface-2);border:1px solid var(--line);padding:.08em .35em;border-radius:4px;font-size:.86em}
+.lead{font-size:1.12rem;line-height:1.65;color:var(--ink-2)}
+.sec-head{display:flex;align-items:baseline;gap:.9rem;margin-bottom:.2rem}
+.sec-head .num{font-family:"IBM Plex Mono",monospace;font-size:.8rem;color:var(--trace);font-weight:500;letter-spacing:.05em}
+
+/* callouts */
+.note{
+  max-width:var(--readw);
+  border:1px solid var(--line);border-left:3px solid var(--ink-3);
+  background:var(--surface);border-radius:0 8px 8px 0;
+  padding:.9rem 1.1rem;margin:1.4rem 0;font-size:.95rem;
+}
+.note .k{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:.3rem}
+.note.model{border-left-color:var(--expo);background:var(--expo-soft)}
+.note.model .k{color:var(--expo)}
+.note.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+.note.warn .k{color:var(--warn)}
+.note.key{border-left-color:var(--trace);background:var(--trace-soft)}
+.note.key .k{color:var(--trace)}
+
+/* ============================================================= PANELS (break out wide) */
+.panel{
+  width:min(100%, 1080px);
+  margin:2rem 0;
+  border-radius:14px;
+  overflow:hidden;
+  border:1px solid var(--line);
+  background:var(--surface);
+  box-shadow:var(--shadow);
+}
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  padding:.85rem 1.1rem;border-bottom:1px solid var(--line);
+  background:var(--surface-2);
+}
+.panel-head .title{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:.92rem;color:var(--ink);display:flex;align-items:center;gap:.5rem}
+.panel-head .title::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--trace)}
+.panel-head .hint{font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--ink-3);letter-spacing:.03em}
+.panel-body{padding:1.1rem}
+.panel-cap{font-size:.86rem;color:var(--ink-2);padding:.2rem 1.1rem 1rem;max-width:64ch}
+figure{margin:0}
+figcaption{font-size:.84rem;color:var(--ink-3);margin-top:.7rem;font-family:"IBM Plex Sans",sans-serif}
+
+/* scope screen */
+.scope{
+  background:radial-gradient(120% 140% at 50% 0%, var(--scope-bg-2), var(--scope-bg));
+  border-radius:10px;padding:10px;
+  border:1px solid rgba(201,213,216,.09);
+}
+.scope canvas,.scope svg{display:block;width:100%;height:auto}
+.scope-readouts{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;
+  margin-top:10px;background:var(--scope-line);border:1px solid var(--scope-line);border-radius:8px;overflow:hidden;
+}
+@media (max-width:620px){ .scope-readouts{grid-template-columns:repeat(2,minmax(0,1fr))} }
+.ro{background:var(--scope-panel);padding:.6rem .7rem}
+.ro .rl{font-family:"IBM Plex Mono",monospace;font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:var(--scope-ink-dim)}
+.ro .rv{font-family:"IBM Plex Mono",monospace;font-size:1.02rem;font-weight:500;color:var(--scope-ink);margin-top:.15rem;font-variant-numeric:tabular-nums}
+.ro .rv .u{font-size:.7rem;color:var(--scope-ink-dim);margin-left:.15rem}
+.ro .rv.ok{color:var(--scope-ok)} .ro .rv.warn{color:var(--scope-warn)}
+
+/* controls */
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1rem 1.4rem;margin-bottom:1rem}
+.ctl{display:flex;flex-direction:column;gap:.35rem}
+.ctl label{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);display:flex;justify-content:space-between;gap:.5rem}
+.ctl label .val{color:var(--trace);font-weight:500}
+.ctl input[type=range]{width:100%;accent-color:var(--trace);height:1.4rem}
+.ctl .seg{display:flex;gap:.25rem;flex-wrap:wrap}
+.ctl .seg button{
+  font-family:"IBM Plex Mono",monospace;font-size:.76rem;
+  padding:.3rem .55rem;border:1px solid var(--line);border-radius:6px;
+  background:var(--surface);color:var(--ink-2);cursor:pointer;
+}
+.ctl .seg button[aria-pressed="true"]{background:var(--trace);border-color:var(--trace);color:#fff}
+.ctl select{
+  font-family:"IBM Plex Mono",monospace;font-size:.8rem;padding:.35rem .5rem;
+  border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);
+}
+
+/* ============================================================= TABLES */
+.tablewrap{overflow-x:auto;margin:1.6rem 0;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-family:"IBM Plex Sans",sans-serif;font-size:.85rem}
+caption{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:.7rem .9rem;border-bottom:1px solid var(--line)}
+th,td{text-align:left;padding:.55rem .8rem;border-bottom:1px solid var(--line-2);vertical-align:top}
+thead th{background:var(--surface-2);color:var(--ink);font-weight:600;position:sticky;top:0;font-size:.78rem;letter-spacing:.02em}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--surface-2)}
+td.num,th.num{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+.tag{font-family:"IBM Plex Mono",monospace;font-size:.68rem;padding:.12rem .4rem;border-radius:4px;white-space:nowrap;display:inline-flex;align-items:center;gap:.3rem}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.neutral{background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line)}
+
+/* ============================================================= HERO */
+.hero{border-top:none;padding-top:2.4rem}
+.hero h1{font-size:clamp(2rem,5.4vw,3.15rem);letter-spacing:-.03em;line-height:1.05;margin-bottom:1rem;max-width:16ch}
+.hero .sub{max-width:52ch;font-size:1.12rem;color:var(--ink-2);line-height:1.6}
+.hero-meta{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.4rem}
+.chip{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.03em;padding:.3rem .55rem;border:1px solid var(--line);border-radius:20px;color:var(--ink-2);background:var(--surface)}
+
+/* ============================================================= SIGNAL CHAIN */
+.chain{display:flex;flex-direction:column;gap:.5rem}
+.chain-row{display:flex;gap:.5rem;align-items:stretch;flex-wrap:wrap}
+.stage{
+  flex:1 1 150px;min-width:150px;
+  border:1px solid var(--line);border-radius:9px;background:var(--surface);
+  padding:0;overflow:hidden;
+}
+.stage > summary{
+  list-style:none;cursor:pointer;padding:.7rem .8rem;display:flex;flex-direction:column;gap:.2rem;
+}
+.stage > summary::-webkit-details-marker{display:none}
+.stage .st-n{font-family:"IBM Plex Mono",monospace;font-size:.64rem;color:var(--trace);letter-spacing:.06em}
+.stage .st-t{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:.86rem;color:var(--ink);line-height:1.25}
+.stage .st-r{font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--ink-3)}
+.stage[open]{border-color:var(--trace)}
+.stage .st-body{padding:0 .8rem .8rem;font-size:.85rem;color:var(--ink-2);font-family:"IBM Plex Serif",serif}
+.stage .st-body .mm{display:block;margin-top:.5rem;padding-top:.5rem;border-top:1px dashed var(--line);color:var(--warn);font-size:.82rem}
+
+/* ============================================================= DECISION TREE */
+.tree{max-width:var(--readw)}
+.tree .q{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:1.1rem 1.2rem;box-shadow:var(--shadow-sm)}
+.tree .path{display:flex;flex-direction:column;gap:.6rem}
+.tree .step{display:flex;gap:.7rem;font-size:.9rem}
+.tree .step .dot{flex:none;width:1.4rem;height:1.4rem;border-radius:50%;background:var(--trace-soft);color:var(--trace);display:grid;place-items:center;font-family:"IBM Plex Mono",monospace;font-size:.72rem;font-weight:600}
+.tree .step .txt{padding-top:.15rem}
+.tree .step .txt b{font-family:"IBM Plex Sans",sans-serif}
+.tree .qtext{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:1.02rem;margin:.2rem 0 .3rem}
+.tree .qsub{color:var(--ink-2);font-size:.92rem;margin-bottom:.9rem}
+.tree .answers{display:flex;gap:.6rem;flex-wrap:wrap}
+.tree .answers button{
+  font-family:"IBM Plex Sans",sans-serif;font-size:.88rem;
+  padding:.5rem .9rem;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);cursor:pointer;
+}
+.tree .answers button:hover{border-color:var(--trace);background:var(--trace-soft)}
+.tree .outcome{border-left:3px solid var(--ok);background:var(--ok-soft);border-radius:0 10px 10px 0;padding:1rem 1.1rem;margin-top:1rem}
+.tree .outcome h4{color:var(--ok);font-family:"IBM Plex Sans",sans-serif;margin-bottom:.3rem}
+.tree .restart{margin-top:1rem;font-family:"IBM Plex Mono",monospace;font-size:.76rem;background:none;border:1px solid var(--line);border-radius:7px;padding:.4rem .7rem;color:var(--ink-2);cursor:pointer}
+
+/* ============================================================= CHECKLIST */
+.checklist{max-width:var(--readw);border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+.checklist .cl-top{padding:.8rem 1rem;border-bottom:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.checklist .bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden;flex:1;max-width:200px}
+.checklist .bar > i{display:block;height:100%;background:var(--trace);transition:width .25s}
+.checklist .cl-count{font-family:"IBM Plex Mono",monospace;font-size:.76rem;color:var(--ink-2)}
+.checklist .cl-reset{font-family:"IBM Plex Mono",monospace;font-size:.72rem;background:none;border:1px solid var(--line);border-radius:6px;padding:.3rem .55rem;color:var(--ink-3);cursor:pointer}
+.checklist li{list-style:none}
+.checklist ol{margin:0;padding:.4rem}
+.checklist label{display:flex;gap:.7rem;padding:.6rem;border-radius:8px;cursor:pointer;font-size:.9rem;align-items:flex-start}
+.checklist label:hover{background:var(--surface-2)}
+.checklist input{margin-top:.28rem;accent-color:var(--trace);width:1rem;height:1rem;flex:none}
+.checklist .n{font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--ink-3);flex:none;padding-top:.15rem}
+.checklist input:checked ~ .t{color:var(--ink-3);text-decoration:line-through}
+
+/* ============================================================= FIELD GUIDE */
+.fieldguide{
+  width:min(100%,1080px);border:1px solid var(--ink);border-radius:14px;
+  background:var(--surface);padding:1.6rem;margin-top:2rem;
+}
+.fieldguide h3{font-size:1.3rem;letter-spacing:-.01em}
+.fg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1.2rem;margin-top:1.2rem}
+.fg-card h4{font-family:"IBM Plex Sans",sans-serif;font-size:.82rem;letter-spacing:.03em;text-transform:uppercase;color:var(--trace);margin-bottom:.4rem}
+.fg-card ul{margin:0;padding-left:1.1rem;font-size:.88rem}
+.fg-card li{margin:.3rem 0}
+.fg-card p{font-size:.88rem;margin:.3rem 0}
+
+/* ============================================================= GLOSSARY */
+.glossary{max-width:var(--readw)}
+.glossary dl{margin:0}
+.glossary div{padding:.7rem 0;border-bottom:1px solid var(--line-2);display:grid;grid-template-columns:minmax(0,13rem) 1fr;gap:1rem}
+.glossary dt{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:.9rem;color:var(--ink)}
+.glossary dd{margin:0;font-size:.9rem;color:var(--ink-2)}
+
+/* ============================================================= MISC */
+.eqn{max-width:var(--readw);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:.8rem 1rem;font-family:"IBM Plex Mono",monospace;font-size:.9rem;overflow-x:auto;margin:1rem 0}
+.eqn .c{color:var(--ink-3)}
+.btn{font-family:"IBM Plex Mono",monospace;font-size:.78rem;background:var(--trace);color:#fff;border:none;border-radius:8px;padding:.55rem .9rem;cursor:pointer;display:inline-flex;align-items:center;gap:.45rem}
+.btn:hover{background:var(--trace-2)}
+.btn.ghost{background:none;color:var(--trace);border:1px solid var(--trace)}
+.footer{max-width:var(--maxw);margin:0 auto;padding:2.5rem clamp(1rem,4vw,2.5rem) 4rem;border-top:1px solid var(--line);color:var(--ink-3);font-size:.82rem;font-family:"IBM Plex Sans",sans-serif}
+
+/* legend row for charts */
+.legend{display:flex;gap:1.2rem;flex-wrap:wrap;font-family:"IBM Plex Sans",sans-serif;font-size:.78rem;color:var(--ink-2);margin-top:.6rem}
+.legend span{display:inline-flex;align-items:center;gap:.4rem}
+.legend i{width:14px;height:3px;border-radius:2px;display:inline-block}
+.legend i.sw{width:11px;height:11px;border-radius:3px}
+
+/* tooltip */
+.tt{position:fixed;z-index:60;pointer-events:none;background:var(--ink);color:var(--bg);font-family:"IBM Plex Mono",monospace;font-size:.72rem;padding:.4rem .55rem;border-radius:6px;opacity:0;transition:opacity .1s;max-width:220px;line-height:1.4}
+
+/* ============================================================= RESPONSIVE */
+@media (max-width: 940px){
+  .shell{grid-template-columns:1fr}
+  .toc{position:static;max-height:none;padding:1rem 0;border-bottom:1px solid var(--line);margin-bottom:1rem}
+  .toc.collapsed{display:none}
+  .toc-toggle{display:inline-flex}
+  .toc ol{display:grid;grid-template-columns:1fr 1fr;gap:.1rem}
+  .glossary div{grid-template-columns:1fr}
+}
+@media (max-width: 560px){
+  body{font-size:16px}
+  .toc ol{grid-template-columns:1fr}
+  section{padding:2.4rem 0}
+}
+
+/* ============================================================= REDUCED MOTION */
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
+
+/* ============================================================= PRINT */
+@media print{
+  .appbar,.toc,.toc-toggle,.tt{display:none!important}
+  .shell{display:block;max-width:none;padding:0}
+  body{background:#fff;color:#000;font-size:10.5pt}
+  section{border-top:1px solid #ccc;padding:1rem 0;break-inside:auto}
+  .panel,.scope{break-inside:avoid;box-shadow:none;border:1px solid #999}
+  .scope{background:#fff!important}
+  .fieldguide{break-before:page;border:2px solid #000}
+  details{border:1px solid #999}
+  details:not([open]) > *:not(summary){display:block!important}
+  a{color:#000;text-decoration:none}
+  .note{border:1px solid #999}
+}
+</style>
+</head>
+<body>
+
+<div class="tt" id="tooltip" role="status" aria-live="off"></div>
+
+<header class="appbar">
+  <span class="brand">
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="1" y="1" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2 12 L5 12 L5 6 L8 6 L8 12 L11 12 L11 8 L14 8 L14 12 L16 12" fill="none" stroke="var(--trace)" stroke-width="1.6" stroke-linejoin="round"/></svg>
+    Perimeter LED on Camera
+  </span>
+  <span class="spacer"></span>
+  <button class="toc-toggle" id="tocToggle" aria-expanded="false" aria-controls="toc">Contents</button>
+  <button id="printBtn" title="Print or save as PDF">Print / PDF</button>
+  <button id="themeBtn" aria-label="Toggle colour theme">
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" id="themeIcon"><circle cx="7" cy="7" r="3.2" fill="none" stroke="currentColor" stroke-width="1.4"/><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M7 1v1.6M7 11.4V13M1 7h1.6M11.4 7H13M2.8 2.8l1.1 1.1M10.1 10.1l1.1 1.1M11.2 2.8l-1.1 1.1M3.9 10.1l-1.1 1.1"/></g></svg>
+    <span id="themeLabel">Theme</span>
+  </button>
+</header>
+
+<div class="shell">
+  <nav class="toc collapsed" id="toc" aria-label="Table of contents">
+    <h2>Contents</h2>
+    <ol id="tocList"></ol>
+  </nav>
+
+  <main>
+<section class="hero" id="top">
+  <p class="eyebrow">Engineering white paper &nbsp;&middot;&nbsp; Rev 1.0 &nbsp;&middot;&nbsp; Vendor-neutral</p>
+  <h1>The display looks fine. The photograph doesn&rsquo;t.</h1>
+  <p class="sub">How PWM operation, system frame timing and camera exposure interact to determine the on-camera appearance of an LED perimeter display &mdash; and the operating conditions expected for a system commissioned as a 50&nbsp;Hz installation.</p>
+  <div class="hero-meta">
+    <span class="chip">Content fps</span>
+    <span class="chip">GPU refresh Hz</span>
+    <span class="chip">Controller frame rate</span>
+    <span class="chip">Scan file</span>
+    <span class="chip">PWM refresh 3200&nbsp;Hz</span>
+    <span class="chip">Camera shutter</span>
+  </div>
+
+  <div class="panel" style="margin-top:2rem">
+    <div class="panel-head">
+      <span class="title">One LED, one 3200&nbsp;Hz refresh, a shutter sweeping across it</span>
+      <span class="hint" id="heroReadout">capturing&hellip;</span>
+    </div>
+    <div class="panel-body">
+      <div class="scope"><canvas id="heroCanvas" height="320" aria-label="Animated oscilloscope trace of a pulse-width-modulated LED at low brightness, with a camera exposure window sweeping across it. The brightness the camera records changes as the window moves."></canvas></div>
+    </div>
+    <p class="panel-cap">The LED emits a short pulse of light every 312.5&nbsp;&micro;s. A person blends those pulses into steady light. A camera at <span class="mono">1/1000&nbsp;s</span> records a 1&nbsp;ms slice &mdash; about three pulses &mdash; and <em>which</em> slice it takes decides what it sees.</p>
+  </div>
+</section>
+
+<section id="s1">
+  <div class="prose">
+    <div class="sec-head"><span class="num">01</span><h2>Executive summary</h2></div>
+    <p class="lead">An LED perimeter display is driven by pulse-width modulation: each LED is switched on and off very rapidly, and brightness is set by how much of each cycle the LED is on. To the eye this is steady light, because human vision blends rapid flicker together. A camera does not. It opens its shutter for a short, precisely timed window and records only the light that arrives during that window.</p>
+    <p>Because of this difference, a display that looks perfectly uniform to a person in the stadium can, in a photograph or a broadcast picture, show <strong>bands</strong> that scroll or sit still, <strong>brightness differences</strong> between areas, <strong>colour shifts</strong>, <strong>partially lit regions</strong>, or <strong>flicker</strong> between frames.</p>
+    <p>These effects are not usually caused by a faulty LED module. They are caused by the timing relationship between several independent clocks: the <strong>frame rate</strong> of the content (fps), the <strong>output refresh</strong> of the graphics card (Hz), the <strong>input and output frame rate</strong> of the LED controller, the <strong>frame timing</strong> of the receiving cards set by the <strong>scan file</strong>, the <strong>row-scanning frequency</strong> from multiplexed scanning, the <strong>PWM / grayscale refresh</strong> of the driver IC (for example 3200&nbsp;Hz), the camera <strong>frame rate</strong>, and the camera <strong>shutter time</strong>.</p>
+
+    <div class="note key">
+      <span class="k">The one relationship to remember</span>
+      A <strong>50&nbsp;Hz</strong> video signal and a <strong>3200&nbsp;Hz</strong> PWM refresh are different layers of the same system. 50&nbsp;Hz is how often a new picture is delivered. 3200&nbsp;Hz is how often each LED repeats its pulse pattern inside that picture. They are related &mdash; in our example implementation, <span class="mono">3200 &divide; 50 = 64</span> repetitions per video frame &mdash; but they are <strong>not the same measurement</strong>, and one cannot be substituted for the other.
+    </div>
+
+    <h4>What we deliver</h4>
+    <p>When we design, configure, test and hand over a perimeter system as a 50&nbsp;Hz system, we expect the customer&rsquo;s complete signal chain to stay at 50&nbsp;Hz: media at 25 or 50&nbsp;fps, graphics card at 50&nbsp;Hz, controller in and out at 50&nbsp;Hz, receiving cards and scan file validated at 50&nbsp;Hz, and the resulting driver-IC PWM/grayscale refresh at the specified value (3200&nbsp;Hz in our example). The camera settings used on site must be chosen and tested against <em>that</em> configuration. If any link changes &mdash; content frame rate, graphics-card output, controller timing, scan file, brightness operating point, or camera exposure &mdash; the on-camera behaviour can change and must be re-validated.</p>
+
+    <h4>What a spec sheet cannot promise</h4>
+    <p>A high advertised refresh rate (3200&nbsp;Hz, 3840&nbsp;Hz, or higher) <strong>reduces the likelihood</strong> of visible camera artefacts but <strong>does not guarantee</strong> a clean picture at every brightness, every content level and every shutter speed. This document explains why, and how to verify performance for a specific installation.</p>
+
+    <div class="note">
+      <span class="k">Scope &amp; assumptions</span>
+      This document is <strong>vendor-neutral by design</strong>. No proprietary driver-IC, receiving-card or controller datasheets were consulted; every hardware-specific timing behaviour is labelled <em>implementation-dependent</em> or <em>engineering assumption</em>. &ldquo;50&nbsp;Hz production environment&rdquo; means the European broadcast convention (25/50&nbsp;fps, 50&nbsp;Hz). All arithmetic uses an explicitly labelled <em>simplified linear PWM model</em>; real driver ICs use S-PWM, distributed / segmented PWM, OE blanking, current gain and sometimes hybrid PWM/PAM.
+    </div>
+  </div>
+</section>
+
+<section id="s2">
+  <div class="prose">
+    <div class="sec-head"><span class="num">02</span><h2>The complete timing chain</h2></div>
+    <p>The signal path from media file to camera passes through nine stages. A timing error introduced early does not stay local &mdash; it is carried forward. Expand any stage below.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="title">Signal chain &mdash; media file to camera</span><span class="hint">tap a stage</span></div>
+    <div class="panel-body">
+      <div class="chain" id="chain"></div>
+    </div>
+    <p class="panel-cap">Each stage has its own clock or its own configuration. On-camera artefacts come from how those clocks line up &mdash; and a display that is entirely within specification can still show artefacts, because the camera is a second, unsynchronised sampling system.</p>
+  </div>
+
+  <div class="prose">
+    <h3>Four clocks, four different rates</h3>
+    <p>Before going further, keep these four apart. They are drawn to scale below for our example configuration.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="title">The four clocks, to scale (50 Hz &middot; 3200 Hz &middot; 1/8 scan &middot; 1/1000 s)</span></div>
+    <div class="panel-body"><div class="scope"><div id="fourClocks"></div></div></div>
+    <p class="panel-cap">One video frame is 20&nbsp;ms. Inside it, the PWM/grayscale pattern repeats 64 times (312.5&nbsp;&micro;s each). Inside each of those, a 1/8-scan panel returns to the same LEDs eight times. A <span class="mono">1/1000&nbsp;s</span> camera shutter (amber) spans just 3.2 PWM periods.</p>
+  </div>
+
+  <div class="prose">
+    <h4>How a mismatch propagates</h4>
+    <ul>
+      <li><strong>Content vs GPU</strong> (e.g. 30&nbsp;fps content on a 50&nbsp;Hz output) &rarr; uneven frame repetition &rarr; periodic cadence a short shutter freezes as a beat.</li>
+      <li><strong>GPU vs controller</strong> (60&nbsp;Hz in, 50&nbsp;Hz out with conversion) &rarr; dropped / interpolated frames &rarr; a slow rolling brightness change on camera.</li>
+      <li><strong>Controller vs scan file</strong> (a 60&nbsp;Hz scan file on a 50&nbsp;Hz input) &rarr; the per-frame PWM budget is wrong &rarr; altered grayscale linearity, low-gray banding, a refresh that is not the intended value.</li>
+      <li><strong>Scan file vs camera</strong> (a correct 50&nbsp;Hz / 3200&nbsp;Hz display, but the shutter captures a partial, phase-dependent set of pulses) &rarr; bands and frame-to-frame flicker even though the display is correct.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="s3">
+  <div class="prose">
+    <div class="sec-head"><span class="num">03</span><h2>Definitions and terminology</h2></div>
+    <p>These terms are <strong>not interchangeable</strong>. Using one where another is meant is the single most common cause of confusion in perimeter-display disputes.</p>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <caption>Terminology &mdash; keep these distinct</caption>
+      <thead><tr><th>Term</th><th>Unit</th><th>What it means</th><th>What it does <em>not</em> mean</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Content frame rate</strong></td><td class="mono">fps</td><td>Unique images per second in the media file (25, 30, 50, 60).</td><td>Not a refresh rate; not a shutter speed.</td></tr>
+        <tr><td><strong>Graphics-card output refresh</strong></td><td class="mono">Hz</td><td>How often the GPU transmits a complete frame over the cable, on a fixed pixel clock.</td><td>Not the content fps (the GPU repeats frames); not the LED PWM rate.</td></tr>
+        <tr><td><strong>Controller processing / output frame rate</strong></td><td class="mono">Hz</td><td>Rate the controller accepts frames (input) and sends frames to the receiving cards (output). May differ if conversion is enabled.</td><td>Not the PWM refresh; not the scan frequency.</td></tr>
+        <tr><td><strong>Receiving-card frame timing</strong></td><td class="mono">Hz</td><td>The receiving card&rsquo;s internal refresh loop, governed by the scan file.</td><td>Not automatically equal to the input frame rate if the scan file says otherwise.</td></tr>
+        <tr><td><strong>Scan ratio (multiplex ratio)</strong></td><td class="mono">1/4&hellip;1/16</td><td>How many row groups share each driver output and are lit in sequence.</td><td>Not a frequency by itself; not &ldquo;the refresh rate&rdquo;.</td></tr>
+        <tr><td><strong>Row-scanning frequency</strong></td><td class="mono">Hz</td><td>How often the scanner cycles back to the same row group. Depends on a refresh-related rate &times; scan denominator; <em>implementation-dependent</em>.</td><td>Not the PWM/grayscale refresh, though related.</td></tr>
+        <tr><td><strong>PWM / grayscale refresh</strong></td><td class="mono">Hz</td><td>How often each LED repeats its full brightness-pulse pattern (3200&nbsp;Hz, 3840&nbsp;Hz). Usually the &ldquo;visual refresh rate&rdquo; on the spec sheet.</td><td>Not the frame rate; not the GCLK bit clock; not guaranteed to be a fixed multiple of the frame rate in every architecture.</td></tr>
+        <tr><td><strong>Grayscale clock (GCLK / DCLK)</strong></td><td class="mono">MHz</td><td>The high-speed clock that shifts individual PWM bits inside the driver IC.</td><td>Not the refresh rate; much higher.</td></tr>
+        <tr><td><strong>Camera recording frame rate</strong></td><td class="mono">fps</td><td>How often the camera captures an image (25, 50, 24, 30, 60, or high-speed).</td><td>Not the shutter time &mdash; a 50&nbsp;fps camera can use almost any shutter from ~1/50&nbsp;s to 1/8000&nbsp;s.</td></tr>
+        <tr><td><strong>Camera shutter / exposure time</strong></td><td class="mono">s</td><td>How long the sensor integrates light per captured frame &mdash; the width of the sampling window over the LED waveform.</td><td>Not the frame rate; not the &ldquo;refresh&rdquo; of anything.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prose">
+    <div class="note key">
+      <span class="k">Say it in one breath</span>
+      <strong>50&nbsp;Hz</strong> = how often the picture is allowed to change. <strong>3200&nbsp;Hz</strong> = how often each LED repeats its pulse pattern inside that picture. <strong>Row-scan</strong> = how often the multiplexer returns to the same LEDs. <strong>Camera shutter</strong> = how wide a slice of all of that the camera records. Four different clocks. Camera artefacts come from how they line up.
+    </div>
+  </div>
+</section>
+<section id="s4">
+  <div class="prose">
+    <div class="sec-head"><span class="num">04</span><h2>50 Hz system requirements</h2></div>
+    <p>This is the agreed operating configuration under which on-camera performance is validated and guaranteed for a system we deliver as a 50&nbsp;Hz installation.</p>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <caption>Required chain configuration for a 50 Hz delivery</caption>
+      <thead><tr><th>Stage</th><th>Required setting</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Media production</strong></td><td>Produced and exported at <strong>25&nbsp;fps or 50&nbsp;fps</strong>.</td></tr>
+        <tr><td><strong>25&nbsp;fps content</strong></td><td>Displayed through the 50&nbsp;Hz output by <strong>repeating each content frame exactly twice</strong> (clean 2:2 cadence). No interpolation.</td></tr>
+        <tr><td><strong>50&nbsp;fps content</strong></td><td>Mapped <strong>directly, 1:1</strong>, to the 50&nbsp;Hz output.</td></tr>
+        <tr><td><strong>Playback computer</strong></td><td>Player output matches the display chain; no frame blending or rate conversion &ldquo;to be safe&rdquo;.</td></tr>
+        <tr><td><strong>Graphics card</strong></td><td>Output mode set to <strong>50&nbsp;Hz</strong> (50.00&nbsp;Hz, not 59.94/60). Verified in OS display settings and the GPU control panel.</td></tr>
+        <tr><td><strong>LED controller / processor</strong></td><td><strong>Receives at 50&nbsp;Hz, processes at 50&nbsp;Hz, outputs at 50&nbsp;Hz.</strong> Frame-rate conversion / frame multiplication <strong>disabled</strong>. Input status must report 50&nbsp;Hz and &ldquo;locked&rdquo;.</td></tr>
+        <tr><td><strong>Receiving cards</strong></td><td>Firmware version recorded. All cards running the <strong>same</strong> validated scan file.</td></tr>
+        <tr><td><strong>Scan file</strong></td><td>Version and parameters recorded and validated for 50&nbsp;Hz operation (scan ratio, grayscale bits, GCLK, OE timing, PWM subdivision).</td></tr>
+        <tr><td><strong>Driver-IC PWM / grayscale refresh</strong></td><td>In our example configuration, the scan-file parameters produce a <strong>3200&nbsp;Hz</strong> PWM/grayscale (visual) refresh. Recorded as the accepted baseline.</td></tr>
+        <tr><td><strong>Global brightness range</strong></td><td>The brightness band under which the system was validated (nominal operating point and stated minimum) is recorded in the acceptance document.</td></tr>
+        <tr><td><strong>Camera configuration</strong></td><td>The camera frame rates and shutter/exposure ranges expected on site are agreed, tested against this display configuration, and recorded.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prose">
+    <h4>Configurations that can cause problems</h4>
+    <ul>
+      <li>Content produced at <strong>30 or 60&nbsp;fps</strong> fed to a 50&nbsp;Hz chain (uneven frame mapping &rarr; judder, brightness beat on camera).</li>
+      <li>A graphics card <strong>accidentally running at 59.94 or 60&nbsp;Hz</strong> while the rest of the chain expects 50&nbsp;Hz.</li>
+      <li>A <strong>controller or scan-file configuration designed for 60&nbsp;Hz</strong> (targeting a 3840&nbsp;Hz refresh) operating on a 50&nbsp;Hz input, or vice versa.</li>
+      <li><strong>Frame-rate conversion enabled</strong> anywhere in the chain when it is not required.</li>
+      <li>Operating <strong>below the validated brightness band</strong> without re-validation.</li>
+      <li>Using camera shutter speeds <strong>outside the tested range</strong> without re-validation.</li>
+    </ul>
+    <div class="note warn">
+      <span class="k">Change control</span>
+      If the customer changes <strong>any</strong> part of the agreed signal chain &mdash; media frame rate or encoding, playback configuration, graphics-card output, controller timing, receiving-card firmware, scan file, global brightness operating point, or the camera frame-rate / shutter range used on site &mdash; the original on-camera performance is <strong>no longer guaranteed</strong> and must be re-validated jointly, using the procedure in section&nbsp;14.
+    </div>
+    <h4>What the scan file is and is not</h4>
+    <p>The scan file is <strong>configured for</strong> a 50&nbsp;Hz system. In the specified implementation, its timing parameters <strong>produce</strong> a 3200&nbsp;Hz PWM/grayscale refresh at the driver IC. &ldquo;50&nbsp;Hz scan file&rdquo; and &ldquo;3200&nbsp;Hz refresh&rdquo; are not the same number &mdash; one is the frame context the file was built for; the other is a timing result the file produces at the LED.</p>
+  </div>
+</section>
+
+<section id="s5">
+  <div class="prose">
+    <div class="sec-head"><span class="num">05</span><h2>Relationship between 50 Hz, 3200 Hz and 3840 Hz</h2></div>
+    <h3>Why the numbers are paired</h3>
+    <p>In <strong>one common architecture</strong>, the receiving card and driver IC divide each video frame into a fixed number of PWM/grayscale repetitions to raise the visible flicker frequency. If that number is 64:</p>
+    <div class="eqn">64 &times; 50 Hz = 3200 Hz <span class="c">&nbsp;&nbsp;// 3200 / 50 = 64</span>
+64 &times; 60 Hz = 3840 Hz <span class="c">&nbsp;&nbsp;// 3840 / 60 = 64</span></div>
+    <p>In this architecture, <strong>64 PWM/grayscale repetitions occur during one video-frame period</strong>. A system built around 50&nbsp;Hz frames lands on 3200&nbsp;Hz; a system built around 60&nbsp;Hz frames lands on 3840&nbsp;Hz. That is why the two numbers appear together in product literature.</p>
+
+    <div class="note warn">
+      <span class="k">This relationship is not universal</span>
+      The 64&times; ratio is a design choice of a particular receiving-card / driver-IC combination, not a law. Some driver ICs generate PWM timing from an internal oscillator or a GCLK divider that is <strong>not phase-locked</strong> to the frame rate; their grayscale refresh can be a fixed frequency regardless of whether the frame is 50 or 60&nbsp;Hz. Some use a different subdivision, a non-integer ratio, or a variable one that depends on bit depth and &ldquo;performance mode&rdquo;. <strong>Do not assume</strong> every 3840&nbsp;Hz system is 60&nbsp;Hz, or every 3200&nbsp;Hz system is 50&nbsp;Hz. Confirm from the scan file, the driver-IC datasheet, the controller documentation, or physical measurement.
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <caption>3200 Hz vs 3840 Hz</caption>
+      <thead><tr><th>Parameter</th><th>3200 Hz</th><th>3840 Hz</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td>Typically paired with</td><td>50 Hz frames</td><td>60 Hz frames</td><td>Convention, not guaranteed.</td></tr>
+        <tr><td>PWM period <span class="mono">T = 1/f</span></td><td class="mono">312.5 &micro;s</td><td class="mono">&asymp; 260.42 &micro;s</td><td>Exact: 1/3200 s and 1/3840 s.</td></tr>
+        <tr><td>Whole PWM periods in 1/50&nbsp;s</td><td class="mono">64.0</td><td class="mono">76.8</td><td>3840 Hz does not divide evenly into a 50 Hz frame.</td></tr>
+        <tr><td>Whole PWM periods in 1/60&nbsp;s</td><td class="mono">53.33</td><td class="mono">64.0</td><td>3200 Hz does not divide evenly into a 60 Hz frame.</td></tr>
+        <tr><td>Whole PWM periods in 1/1000&nbsp;s</td><td class="mono">3.2</td><td class="mono">3.84</td><td>Neither is an integer &mdash; phase-dependent capture.</td></tr>
+        <tr><td>Best-matched still shutters</td><td class="mono">1/50, 1/100, 1/200, 1/400, 1/800, 1/1600</td><td class="mono">1/60, 1/120, 1/240, 1/480, 1/960</td><td>&ldquo;Matched&rdquo; improves integration; does not guarantee a clean image.</td></tr>
+        <tr><td>Best-matched camera fps</td><td class="mono">25, 50</td><td class="mono">30, 60</td><td>Mismatched camera fps beats with the frame layer.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose">
+    <h4>Multiple frequencies coexist in the light</h4>
+    <p>The optical output of a scanned PWM display is not a single sine wave. At the same time it can contain a component at the <strong>frame rate</strong> (50&nbsp;Hz), a component at the <strong>row-scan frequency</strong>, a component at the <strong>PWM/grayscale refresh</strong> (3200&nbsp;Hz), and harmonics of all three. A camera artefact can beat with <strong>any</strong> of these &mdash; which is why &ldquo;we have a 3200&nbsp;Hz display&rdquo; does not, by itself, answer &ldquo;will it look clean on camera&rdquo;.</p>
+  </div>
+</section>
+
+<section id="s6">
+  <div class="prose">
+    <div class="sec-head"><span class="num">06</span><h2>How PWM creates brightness</h2></div>
+    <p>An LED is essentially a switch for light: at a fixed drive current it is either emitting or dark. PWM sets <strong>average</strong> brightness by controlling the fraction of each period the LED is on &mdash; the <strong>duty cycle</strong>.</p>
+    <p>The <strong>period does not change</strong> with brightness. Reducing brightness normally shortens the ON pulse and lengthens the OFF gap within the same period. A 3200&nbsp;Hz PWM display driven dark is still a 3200&nbsp;Hz PWM display; it just has shorter pulses.</p>
+    <div class="note model">
+      <span class="k">Simplified model</span>
+      The waveforms and arithmetic below assume: one rectangular ON pulse per period; ON time exactly proportional to the brightness percentage; no gamma, no calibration coefficients, no current-gain change, no OE blanking, no pulse splitting. Real driver ICs deviate from all of these. Use the numbers to understand the <em>mechanism</em>, not to predict a specific waveform.
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="title">ON / OFF time as brightness falls &mdash; 3200 Hz, T = 312.5 &micro;s</span></div>
+    <div class="panel-body"><div class="scope"><div id="dutyMultiples"></div></div></div>
+    <p class="panel-cap">At 100% the LED fills the period and the light looks continuous. At 10% it is a ~31&nbsp;&micro;s spike in ~281&nbsp;&micro;s of darkness. The refresh is unchanged; the modulation is far deeper &mdash; and that is what a fast shutter resolves.</p>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Simplified linear PWM &mdash; worked ON/OFF times</caption>
+      <thead><tr><th>Nominal duty</th><th class="num">T_ON @ 3200 Hz</th><th class="num">T_OFF @ 3200 Hz</th><th class="num">T_ON @ 3840 Hz</th><th class="num">T_OFF @ 3840 Hz</th></tr></thead>
+      <tbody>
+        <tr><td>100%</td><td class="num">312.50 &micro;s</td><td class="num">0.00 &micro;s</td><td class="num">260.42 &micro;s</td><td class="num">0.00 &micro;s</td></tr>
+        <tr><td>50%</td><td class="num">156.25 &micro;s</td><td class="num">156.25 &micro;s</td><td class="num">130.21 &micro;s</td><td class="num">130.21 &micro;s</td></tr>
+        <tr><td>25%</td><td class="num">78.125 &micro;s</td><td class="num">234.375 &micro;s</td><td class="num">65.10 &micro;s</td><td class="num">195.31 &micro;s</td></tr>
+        <tr><td>10%</td><td class="num">31.25 &micro;s</td><td class="num">281.25 &micro;s</td><td class="num">26.04 &micro;s</td><td class="num">234.38 &micro;s</td></tr>
+        <tr><td>1%</td><td class="num">3.125 &micro;s</td><td class="num">309.375 &micro;s</td><td class="num">2.60 &micro;s</td><td class="num">257.81 &micro;s</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose">
+    <div class="note">
+      <span class="k">Reality is more complicated than one pulse per period</span>
+      Real systems may use distributed / segmented / scrambled PWM and S-PWM (the per-frame ON time split into many short sub-pulses spread across the frame), OE blanking, current gain, black-frame insertion, hybrid PWM + PAM, and special low-grayscale algorithms below a threshold. The model here shows the principle; only measurement or the datasheet gives the exact waveform.
+    </div>
+  </div>
+</section>
+
+<section id="s7">
+  <div class="prose">
+    <div class="sec-head"><span class="num">07</span><h2>Global brightness versus content brightness</h2></div>
+    <p>Six things all make an LED &ldquo;dimmer&rdquo;. They are not implemented the same way and do not behave the same on camera.</p>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <caption>Six ways to be darker</caption>
+      <thead><tr><th>Mechanism</th><th>What physically changes</th><th>Typical layer</th></tr></thead>
+      <tbody>
+        <tr><td><strong>1 &middot; Global display brightness = 10%</strong></td><td>Every pixel scaled down together</td><td>Controller / receiving card; may be PWM duty, current gain, or a mix</td></tr>
+        <tr><td><strong>2 &middot; Pixel with 10% grayscale value</strong></td><td>Only that pixel&rsquo;s code value is low</td><td>Content &rarr; gamma + calibration + driver mapping</td></tr>
+        <tr><td><strong>3 &middot; Dark colour, unequal RGB</strong></td><td>Each channel at a different low duty/level</td><td>Per-channel in the driver IC</td></tr>
+        <tr><td><strong>4 &middot; Reduced LED current gain</strong></td><td>Current <em>amplitude</em> lower; pulse <em>width</em> may be unchanged</td><td>Driver-IC current setting</td></tr>
+        <tr><td><strong>5 &middot; Reduced brightness via PWM / OE duty</strong></td><td>ON <em>time</em> shorter; amplitude unchanged</td><td>Driver-IC PWM + receiving-card OE</td></tr>
+        <tr><td><strong>6 &middot; Current gain + PWM scaling combined</strong></td><td>Both amplitude and width reduced, by a vendor-chosen split</td><td>Controller + receiving card + driver IC</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prose">
+    <p>Mechanisms that work by <strong>shortening pulses</strong> (2, 3, 5, and the PWM part of 6) make the light more strongly modulated in time &mdash; deeper dark gaps between shorter spikes &mdash; so a short shutter is more likely to catch a non-representative slice. Mechanisms that work by <strong>lowering amplitude</strong> (4, and the current-gain part of 6) keep the pulse wide but dimmer, which is generally kinder to cameras &mdash; at a cost (section&nbsp;08).</p>
+
+    <div class="note model">
+      <span class="k">Conceptual example only</span>
+      Display brightness 25% &times; content pixel value 40% &rarr; simplified effective level <span class="mono">0.25 &times; 0.40 = 0.10</span> &rarr; &asymp; 10% <em>in the code domain</em>. With display gamma &asymp; 2.2 the <strong>linear light</strong> is nearer <span class="mono">0.25 &times; 0.40<sup>2.2</sup> &asymp; 0.033</span> &mdash; about 3.3%, not 10%. Calibration coefficients, low-gray algorithms and current-gain interaction move it further. You cannot predict the exact pulse from the percentages; you can predict the direction (dimmer &rarr; shorter and/or lower pulses &rarr; more camera-sensitive) and must measure the magnitude.
+    </div>
+  </div>
+</section>
+<section id="s8">
+  <div class="prose">
+    <div class="sec-head"><span class="num">08</span><h2>PWM duty versus LED current gain</h2></div>
+    <p>Both reduce brightness. They are different tools with different trade-offs. <strong>PWM control changes how long the LED is energised; current-gain control changes the current amplitude while it is energised.</strong></p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="title">Same average luminance, two different pulse shapes</span></div>
+    <div class="panel-body"><div class="scope"><div id="dutyGain"></div></div></div>
+    <p class="panel-cap">Left: dimmed to 25% by <strong>PWM</strong> &mdash; a short, full-height spike, deep dark gap. Right: dimmed to 25% by <strong>current gain</strong> &mdash; a full-width pulse at reduced height. A slow luminance meter reads them as equal. A fast camera shutter does not.</p>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <caption>PWM duty vs current gain &mdash; engineering trade-offs</caption>
+      <thead><tr><th>Aspect</th><th>PWM / OE duty control</th><th>Current-gain (amplitude) control</th></tr></thead>
+      <tbody>
+        <tr><td>What changes</td><td>How long the LED is energised per period</td><td>How much current flows while it is energised</td></tr>
+        <tr><td>Pulse shape at low brightness</td><td>Short pulse, long dark gap; deep temporal modulation</td><td>Near-full-width pulse, lower height; shallow modulation</td></tr>
+        <tr><td>On-camera behaviour at short shutter</td><td><strong>More</strong> prone to bands, brightness steps, frame flicker as brightness drops</td><td><strong>Less</strong> prone to temporal artefacts at the same average luminance</td></tr>
+        <tr><td>Colour consistency</td><td>LED chromaticity fairly stable vs duty</td><td>Chromaticity and forward voltage <strong>shift</strong> with current; white-point drift on large reductions</td></tr>
+        <tr><td>Low-gray / dark detail</td><td>Very short pulses hit the driver&rsquo;s minimum pulse width &rarr; quantisation, missing codes, colour crush</td><td>Lower current shrinks signal margin &rarr; noise, dither visibility, non-monotonic low grays</td></tr>
+        <tr><td>Calibration validity</td><td>Calibration usually performed at a reference current; staying on it keeps it valid</td><td>Large current changes move the operating point <strong>away</strong> from the calibrated condition</td></tr>
+        <tr><td>Grayscale resolution / SNR</td><td>Full PWM bit depth retained</td><td>Effective dynamic range can shrink; dark noise more visible</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose">
+    <ul>
+      <li><strong>PWM reduction alone</strong>, taken far, produces short pulses that make camera artefacts more visible and can crush low grays.</li>
+      <li><strong>Current-gain reduction alone</strong>, taken far, keeps pulses long but degrades colour accuracy, calibration validity, low-gray linearity and signal-to-noise.</li>
+      <li><strong>Most professional systems use a combination</strong> &mdash; a moderate current-gain reduction plus PWM scaling for fine control, with the split chosen by the vendor&rsquo;s processing. Current-gain reduction is <strong>not universally superior</strong>.</li>
+    </ul>
+    <div class="note">
+      <span class="k">Why two &ldquo;identical&rdquo; displays differ on camera</span>
+      Two displays with the same measured average luminance and the same advertised refresh can still look different on camera, because pulse <strong>shape</strong>, pulse <strong>distribution</strong> across the frame, <strong>current amplitude</strong> vs duty split, <strong>scan timing</strong>, <strong>OE intervals</strong> and <strong>low-grayscale processing</strong> are not captured by those two figures.
+    </div>
+  </div>
+</section>
+
+<section id="s9">
+  <div class="prose">
+    <div class="sec-head"><span class="num">09</span><h2>Effect of scan ratio</h2></div>
+    <p>To save driver channels and wiring, many panels share each set of driver outputs between several row groups and light them in sequence. While one group is driven, the others are <strong>dark</strong>. So a given LED&rsquo;s maximum possible physical ON time over wall-clock is bounded by its group&rsquo;s active fraction &mdash; even at &ldquo;100% brightness&rdquo;.</p>
+    <div class="note model">
+      <span class="k">Simplified bound</span>
+      The table gives an upper bound on wall-clock ON fraction <em>from scanning alone</em>. It assumes the row-active window is fully usable and ignores OE overhead, blanking, settling and pulse scheduling &mdash; all of which reduce it further. <strong>Do not</strong> simply multiply &ldquo;scan fraction &times; grayscale %&rdquo; and treat it as the real waveform: many driver architectures split and schedule pulses in ways this does not capture.
+    </div>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <caption>Scan ratio &mdash; approximate bounds</caption>
+      <thead><tr><th>Scan ratio</th><th class="num">Row-active fraction (upper bound on ON at 100%)</th><th class="num">Row-active window inside a 312.5 &micro;s period</th></tr></thead>
+      <tbody>
+        <tr><td>1/2</td><td class="num">&asymp; 50%</td><td class="num">&asymp; 156 &micro;s</td></tr>
+        <tr><td>1/4</td><td class="num">&asymp; 25%</td><td class="num">&asymp; 78 &micro;s</td></tr>
+        <tr><td>1/8</td><td class="num">&asymp; 12.5%</td><td class="num">&asymp; 39 &micro;s</td></tr>
+        <tr><td>1/16</td><td class="num">&asymp; 6.25%</td><td class="num">&asymp; 20 &micro;s</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li>Only selected rows / groups are actively driven during each scan interval; the rest are off.</li>
+      <li>The driver must distribute the grayscale PWM pulses within the available row time, which shrinks as the scan ratio rises.</li>
+      <li>Higher scan ratios can reduce the available physical illumination time per LED, increasing temporal modulation depth and camera sensitivity.</li>
+      <li>Good driver ICs use sophisticated pulse scheduling &mdash; splitting each pixel&rsquo;s energy into several short bursts across the frame &mdash; specifically to improve camera performance. This is why the simple bound is only a bound.</li>
+      <li>Perimeter products are frequently designed with low scan ratios to maximise row-active time for cameras; the exact ratio must be read from the scan file, not assumed.</li>
+      <li><strong>Refresh-rate specifications alone do not fully describe the temporal behaviour.</strong></li>
+    </ul>
+  </div>
+</section>
+
+<section id="s10">
+  <div class="prose">
+    <div class="sec-head"><span class="num">10</span><h2>Why low brightness is harder for cameras</h2></div>
+    <p>Take a perimeter display at 10% global brightness, nominal PWM refresh still 3200&nbsp;Hz, photographed at 1/1000&nbsp;s. The period <strong>remains &asymp; 312.5&nbsp;&micro;s</strong> &mdash; lowering brightness did not lower the refresh. The ON pulse becomes shorter; the OFF portion becomes longer. A 1/1000&nbsp;s exposure spans only <strong>3.2 nominal PWM periods</strong>. Depending on exposure phase, row-scanning position and pulse distribution, different sensor rows and image areas integrate different amounts of light.</p>
+    <ul>
+      <li>At <strong>100% white</strong>, the ON pulse fills the available scan window, so during each window the light is comparatively continuous; the exposure captures a fairly representative amount regardless of phase.</li>
+      <li>At <strong>10% brightness or on dark content</strong>, the light is a short spike in a long dark period, so <em>which</em> 1&nbsp;ms slice the camera takes matters a great deal &rarr; visible bands, brightness differences, frame-to-frame flicker.</li>
+    </ul>
+    <div class="note key">
+      <span class="k">&ldquo;Not fully on&rdquo; is informal &mdash; here is the accurate version</span>
+      During its exposure window the camera <strong>integrates an incomplete and uneven set of PWM pulses and scan intervals</strong>. The number and fraction captured depends on the exposure length, the exposure start phase relative to the PWM and scan clocks, the sensor readout timing, and how the driver distributes pulses. As brightness and content level fall, the pulses get shorter and the dark gaps longer, so the variation between one exposure &mdash; or one sensor row &mdash; and the next grows. A high advertised refresh rate does not guarantee identical camera performance at every brightness and grayscale value.
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span class="title">PWM waveform explorer</span>
+      <span class="hint">simplified linear model &mdash; illustrative</span>
+    </div>
+    <div class="panel-body">
+      <div class="controls" id="expControls">
+        <div class="ctl">
+          <label for="exFreq">PWM refresh <span class="val" id="exFreqV">3200 Hz</span></label>
+          <div class="seg" id="exFreq" role="group" aria-label="PWM refresh">
+            <button data-v="3200" aria-pressed="true">3200</button>
+            <button data-v="3840" aria-pressed="false">3840</button>
+            <button data-v="1920" aria-pressed="false">1920</button>
+          </div>
+        </div>
+        <div class="ctl">
+          <label for="exScan">Scan ratio <span class="val" id="exScanV">1/8</span></label>
+          <div class="seg" id="exScan" role="group" aria-label="Scan ratio">
+            <button data-v="1" aria-pressed="false">1/1</button>
+            <button data-v="4" aria-pressed="false">1/4</button>
+            <button data-v="8" aria-pressed="true">1/8</button>
+            <button data-v="16" aria-pressed="false">1/16</button>
+          </div>
+        </div>
+        <div class="ctl">
+          <label for="exBright">Global brightness <span class="val" id="exBrightV">25%</span></label>
+          <input type="range" id="exBright" min="1" max="100" value="25">
+        </div>
+        <div class="ctl">
+          <label for="exContent">Content level <span class="val" id="exContentV">100%</span></label>
+          <input type="range" id="exContent" min="1" max="100" value="100">
+        </div>
+        <div class="ctl">
+          <label for="exShutter">Camera shutter <span class="val" id="exShutterV">1/1000 s</span></label>
+          <input type="range" id="exShutter" min="0" max="10" value="8" step="1" list="shutterTicks">
+          <datalist id="shutterTicks"></datalist>
+        </div>
+        <div class="ctl">
+          <label for="exPhase">Exposure start phase <span class="val" id="exPhaseV">0.35 frame</span></label>
+          <input type="range" id="exPhase" min="0" max="100" value="35">
+        </div>
+        <div class="ctl">
+          <label for="exGamma">Content &rarr; light <span class="val" id="exGammaV">gamma 2.2</span></label>
+          <div class="seg" id="exGamma" role="group" aria-label="Transfer function">
+            <button data-v="2.2" aria-pressed="true">gamma</button>
+            <button data-v="1" aria-pressed="false">code</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="scope">
+        <canvas id="expCanvas" height="300" aria-label="Oscilloscope trace of LED light output versus time with the camera exposure window shaded. Readouts below give the numeric result."></canvas>
+        <div class="scope-readouts" id="expReadouts"></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--scope-trace)"></i> LED light output</span>
+        <span><i class="sw" style="background:var(--scope-expo-fill);border:1px solid var(--scope-expo)"></i> camera exposure window</span>
+        <span><i class="sw" style="background:linear-gradient(90deg,#222,#888)"></i> what a rolling-shutter sensor sees, top&rarr;bottom</span>
+      </div>
+    </div>
+    <p class="panel-cap">
+      <strong>Capture ratio</strong> compares the light collected in the exposure to a perfectly representative average (100% = representative; far from 100% = the frame will read too bright or too dark). <strong>Band contrast</strong> is the brightest-minus-darkest across a rolling-shutter sensor&rsquo;s rows &mdash; the strip on the right visualises the bands. Try 100% brightness first, then drop to 10%. Then change the shutter. Then nudge the phase.
+    </p>
+  </div>
+</section>
+
+<section id="s11">
+  <div class="prose">
+    <div class="sec-head"><span class="num">11</span><h2>Camera shutter examples</h2></div>
+    <p>At 3200&nbsp;Hz a <span class="mono">1/1000&nbsp;s</span> exposure captures <span class="mono">3200 &times; 0.001 = 3.2</span> PWM periods; at 3840&nbsp;Hz, <span class="mono">3.84</span> periods. Neither is a whole number. A non-integer count means the exposure captures &ldquo;three full pulses plus a bit of a fourth&rdquo;, and how big &ldquo;a bit&rdquo; is depends on <strong>where in the cycle the shutter opened</strong>. Because camera and display are not phase-locked, that phase is effectively random and drifts frame to frame &mdash; so consecutive frames, or consecutive sensor rows, integrate different totals.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span class="title">Shutter speed vs PWM periods captured</span>
+      <span class="hint" id="shChartFreq">3200 Hz</span>
+    </div>
+    <div class="panel-body">
+      <div class="controls" style="margin-bottom:.6rem">
+        <div class="ctl">
+          <label>Reference refresh</label>
+          <div class="seg" id="shFreq" role="group" aria-label="Reference refresh">
+            <button data-v="3200" aria-pressed="true">3200 Hz</button>
+            <button data-v="3840" aria-pressed="false">3840 Hz</button>
+          </div>
+        </div>
+      </div>
+      <div class="scope"><div id="shutterChart"></div></div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--scope-ok)"></i> whole number of periods &mdash; better average integration</span>
+        <span><i class="sw" style="background:var(--scope-expo)"></i> fractional &mdash; phase-dependent capture</span>
+      </div>
+    </div>
+    <p class="panel-cap">Hover a bar for the exact count. At 3200&nbsp;Hz the clean values are 1/50, 1/100, 1/200, 1/400, 1/800 and 1/1600&nbsp;s.</p>
+  </div>
+
+  <div class="prose">
+    <div class="note warn">
+      <span class="k">An integer period count does not guarantee a clean image</span>
+      Capturing a whole number of <em>nominal</em> PWM periods improves average-light integration but does not defeat: no phase lock between camera and LED; rolling-shutter line-by-line readout; multiplexed scanning (a different clock); OE / blanking timing; distributed / segmented PWM; the actual refresh differing slightly from nominal; low-grayscale algorithms; controller frame boundaries; a drifting exposure start phase; mains-powered venue lighting; other asynchronous displays. <strong>Do not claim that 1/800&nbsp;s will always be clean merely because it covers four nominal PWM periods.</strong>
+    </div>
+    <h4>Camera frame rate as well as shutter</h4>
+    <p>For a 50&nbsp;Hz display, a camera at <strong>25 or 50&nbsp;fps</strong> captures a whole number of display frames per cycle and is least likely to beat with the frame layer. A camera at <strong>30 or 60&nbsp;fps</strong> (or 23.976 / 29.97 / 59.94) walks relative to the 50&nbsp;Hz frame layer, producing a slow rolling brightness/colour change. The beat frequency is <span class="mono">|f_cam &minus; n&middot;50|</span> for the nearest integer <span class="mono">n</span> &mdash; 60&nbsp;fps gives a ~10&nbsp;Hz roll.</p>
+    <h4>Camera-side mitigations</h4>
+    <ul>
+      <li>Use the camera&rsquo;s <strong>variable / synchro-scan / high-frequency anti-flicker</strong> shutter to tune to a value that is clean on this display.</li>
+      <li>Use a <strong>flicker-reduction</strong> detection mode where available.</li>
+      <li>Choose <strong>shutter angles</strong> (cine) that correspond to integer PWM captures for the measured refresh.</li>
+      <li>Prefer <strong>global-shutter</strong> sensors for critical perimeter capture.</li>
+      <li><strong>Genlock</strong> the camera to the production reference &mdash; this removes the frame-layer beat but not the PWM/scan-layer effects.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="s12">
+  <div class="prose">
+    <div class="sec-head"><span class="num">12</span><h2>Human vision versus camera capture</h2></div>
+    <p>Human vision integrates luminance over roughly 1/25&ndash;1/50&nbsp;s and holds a signal briefly after the light stops (persistence), so a 3200&nbsp;Hz pulse train fuses into a constant level. The eye also does not scan the scene in horizontal lines with a moving exposure window, so it produces no rolling bands.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="title">The same trace, seen two ways</span></div>
+    <div class="panel-body"><div class="scope"><canvas id="visionCanvas" height="300" aria-label="Comparison of a wide human-vision integration window, which reads a steady level, against a narrow camera exposure window, whose reading jumps as it moves along the same LED waveform."></canvas></div></div>
+    <p class="panel-cap">Top: the LED waveform. A wide <strong>eye</strong> window (left needle) settles on a steady value. A narrow <strong>camera</strong> window (right needle) reads a different value depending on where it sits &mdash; and a rolling-shutter sensor stacks those different readings down the frame as bands.</p>
+  </div>
+
+  <div class="prose">
+    <ul>
+      <li><strong>Short exposure window:</strong> a 1/1000&nbsp;s shutter samples ~3 PWM periods &mdash; it cannot average what it did not capture.</li>
+      <li><strong>Rolling shutter:</strong> each sensor line is exposed at a slightly different time; if the light modulates at the PWM, scan or OE frequency, successive lines catch different phases &rarr; bright and dark bands, which scroll if the frequencies drift.</li>
+      <li><strong>PWM phase:</strong> each captured frame starts at a different point in the cycle &rarr; whole-frame flicker or slow beating over a sequence.</li>
+      <li><strong>Colour separation:</strong> red, green and blue can have different duty cycles for a non-white colour, so a short exposure can catch more of one channel &rarr; a colour shift that is not in the content.</li>
+    </ul>
+    <div class="note key">
+      <span class="k">Consequences for evidence</span>
+      A single photograph is not reliable evidence of how the display looks to a person &mdash; it is evidence of how the display looked to <em>that</em> camera, at <em>that</em> shutter, at <em>that</em> frame, at <em>that</em> phase. Two photos a fraction of a second apart can disagree. Video is more informative than a still. A display can be fully acceptable at 100% brightness and show artefacts at low brightness or on dark content, so acceptance testing must cover the brightness and content range that will actually be used.
+    </div>
+  </div>
+</section>
+<section id="s13">
+  <div class="prose">
+    <div class="sec-head"><span class="num">13</span><h2>Common misconceptions</h2></div>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <caption>What people say &mdash; and the correct statement</caption>
+      <thead><tr><th>Misconception</th><th>Correct statement</th></tr></thead>
+      <tbody>
+        <tr><td>&ldquo;It&rsquo;s a 3200&nbsp;Hz display, so it&rsquo;s camera-safe.&rdquo;</td><td>3200&nbsp;Hz reduces artefact risk but does not guarantee a clean image at every brightness, content level, shutter and camera frame rate. Multiple other clocks (frame, scan, OE) are also present in the light.</td></tr>
+        <tr><td>&ldquo;50&nbsp;Hz and 3200&nbsp;Hz are the same measurement.&rdquo;</td><td>Different layers. 50&nbsp;Hz = new pictures per second. 3200&nbsp;Hz = pulse-pattern repetitions per second per LED. In our example, 64 repetitions per frame &mdash; a relationship, not an identity.</td></tr>
+        <tr><td>&ldquo;The scan file is a 50&nbsp;Hz file, so the refresh is 50&nbsp;Hz.&rdquo;</td><td>The scan file is <em>configured for</em> a 50&nbsp;Hz system; its parameters <em>produce</em> a 3200&nbsp;Hz PWM/grayscale refresh in the specified implementation.</td></tr>
+        <tr><td>&ldquo;Every 3840&nbsp;Hz system is 60&nbsp;Hz; every 3200&nbsp;Hz system is 50&nbsp;Hz.&rdquo;</td><td>A common design convention, not a rule. Some driver ICs generate PWM timing independently of the frame rate. Confirm from the scan file, datasheet, controller docs or measurement.</td></tr>
+        <tr><td>&ldquo;Lowering the brightness lowers the refresh rate.&rdquo;</td><td>Lowering brightness normally keeps the period (&asymp; 312.5&nbsp;&micro;s at 3200&nbsp;Hz) and shortens the ON pulse. The refresh stays nominally the same; the modulation gets deeper.</td></tr>
+        <tr><td>&ldquo;Reducing current gain is always the best way to dim for camera.&rdquo;</td><td>It keeps pulses long but degrades colour accuracy, calibration validity, low-gray linearity and SNR. Most systems use a current-gain + PWM combination.</td></tr>
+        <tr><td>&ldquo;If the shutter covers a whole number of PWM periods, the image is clean.&rdquo;</td><td>Integer capture improves average-light integration but does not defeat rolling shutter, scan-frequency beats, OE timing, distributed PWM, refresh error or venue lighting.</td></tr>
+        <tr><td>&ldquo;1/800&nbsp;s is always clean on a 3200&nbsp;Hz display.&rdquo;</td><td>It captures 4 nominal periods and is a good starting point, but must still be verified for the specific installation.</td></tr>
+        <tr><td>&ldquo;The camera photo proves the display is faulty.&rdquo;</td><td>A photo proves what one camera captured in one phase. Reproduce it, vary the shutter, check the eye, and measure the optical waveform before concluding.</td></tr>
+        <tr><td>&ldquo;Scan ratio &times; grayscale % gives the real ON time.&rdquo;</td><td>That gives a rough upper bound only. Driver ICs schedule and split pulses in ways simple multiplication does not capture.</td></tr>
+        <tr><td>&ldquo;A faster camera shutter is always better for LED capture.&rdquo;</td><td>Shorter shutters capture fewer PWM periods and are more phase-sensitive. There is usually a best range, not &ldquo;as fast as possible&rdquo;.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="s14">
+  <div class="prose">
+    <div class="sec-head"><span class="num">14</span><h2>Commissioning and test procedure</h2></div>
+    <p>Use this at handover and whenever any part of the chain changes. The checklist state is saved in this browser.</p>
+  </div>
+
+  <div class="checklist" id="checklist" aria-label="Commissioning checklist">
+    <div class="cl-top">
+      <span class="cl-count" id="clCount">0 / 15</span>
+      <span class="bar"><i id="clBar" style="width:0%"></i></span>
+      <button class="cl-reset" id="clReset">Reset</button>
+    </div>
+    <ol id="clList"></ol>
+  </div>
+
+  <div class="prose" style="margin-top:1.6rem">
+    <h4>Pass / borderline / fail</h4>
+    <ul>
+      <li><strong>Pass:</strong> across the agreed brightness range and camera shutter range, stills show no visible bands or colour shift and video shows no flicker or rolling bands, at the agreed camera frame rate(s).</li>
+      <li><strong>Borderline:</strong> artefacts appear only outside the agreed ranges. Document the boundary and get written agreement on the operating envelope.</li>
+      <li><strong>Fail:</strong> artefacts appear within the agreed ranges and operating point. Go to the decision tree (section&nbsp;15).</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span class="title">Test-results template</span>
+      <button class="btn ghost" id="csvBtn" style="font-size:.72rem;padding:.35rem .6rem">Download CSV</button>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <div class="tablewrap" style="margin:0;border:none;border-radius:0">
+        <table id="resultsTable">
+          <thead><tr>
+            <th>Test&nbsp;ID</th><th>Pattern</th><th>Bright&nbsp;%</th><th>Camera&nbsp;fps</th><th>Shutter</th><th>Aperture</th><th>ISO</th><th>Sensor</th><th>Anti-flicker</th><th>Result</th><th>Artefact</th><th>Meas.&nbsp;period&nbsp;&micro;s</th><th>Mod.&nbsp;depth&nbsp;%</th><th>Photo&nbsp;ref</th><th>Notes</th>
+          </tr></thead>
+          <tbody>
+            <tr><td class="mono">EX-1</td><td>Full white</td><td class="num">100</td><td class="num">50</td><td class="mono">1/200</td><td class="mono">f/4</td><td class="num">800</td><td>rolling</td><td>off</td><td><span class="tag ok">pass</span></td><td>none</td><td class="num">312</td><td class="num">4</td><td class="mono">IMG_0412</td><td><em>example row</em></td></tr>
+            <tr><td class="mono">EX-2</td><td>Low-gray ramp</td><td class="num">10</td><td class="num">50</td><td class="mono">1/1000</td><td class="mono">f/4</td><td class="num">800</td><td>rolling</td><td>off</td><td><span class="tag warn">fail</span></td><td>rolling bands</td><td class="num">313</td><td class="num">61</td><td class="mono">IMG_0461</td><td><em>example row</em></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="panel-cap">Recommended minimum matrix: {white, red, green, blue, low-gray ramp} &times; {100, 50, 25, 10}% brightness &times; {1/50, 1/100, 1/200, 1/400, 1/800, 1/1000&nbsp;s} at the production camera fps. Keep aperture, ISO, white balance, focal length, focus and content identical across a comparison set &mdash; change only the shutter, then only the brightness.</p>
+  </div>
+
+  <div class="prose">
+    <h4>Engineering verification</h4>
+    <p>For step&nbsp;13, measure the actual optical waveform with a fast photodiode and an oscilloscope: capture at 100% white and at the agreed low operating point, on white and on a dark colour. Record the fundamental period(s), pulse width, modulation depth and any scan/OE structure &mdash; and whether the measured waveform changes with global brightness, grayscale level, colour and scan-file configuration. <strong>Do not rely only on the advertised &ldquo;maximum refresh rate&rdquo;.</strong></p>
+  </div>
+</section>
+
+<section id="s15">
+  <div class="prose">
+    <div class="sec-head"><span class="num">15</span><h2>Troubleshooting decision tree</h2></div>
+    <p>Answer each question about the artefact you are seeing. The tree walks to a recommended action.</p>
+  </div>
+  <div class="tree" id="tree"></div>
+</section>
+
+<section id="s16">
+  <div class="prose">
+    <div class="sec-head"><span class="num">16</span><h2>Acceptance conditions and customer responsibilities</h2></div>
+    <p>On-camera performance is a property of the <strong>complete system</strong>, not of the LED module alone. The complete system includes media frame rate and encoding, the playback computer, graphics-card timing, LED controller configuration, receiving-card firmware and parameters, the scan file, driver-IC operation, global brightness, displayed content, camera frame rate, camera shutter/exposure, camera sensor readout type, and venue lighting. A change to <strong>any</strong> of these can change the recorded result while the LED hardware is unchanged and fully within specification.</p>
+
+    <h4>What we commit to on a 50&nbsp;Hz delivery</h4>
+    <p>When a system has been specified, configured, tested and accepted under the agreed 50&nbsp;Hz configuration of section&nbsp;04, we commit that &mdash; under that configuration and within the brightness and camera-shutter envelope recorded at acceptance &mdash; the display meets the agreed on-camera criteria.</p>
+
+    <h4>What requires joint re-validation</h4>
+    <p>Any change to the media frame rate or encoding, the playback configuration, the graphics-card output, the controller timing (or enabling frame-rate conversion), the receiving-card firmware or scan file, the global brightness operating point (in particular running darker than the recorded envelope), or the camera frame-rate / shutter range used on site.</p>
+
+    <div class="note">
+      <span class="k">Shared responsibility &mdash; no automatic fault attribution</span>
+      An artefact appearing after a change does not by itself establish fault on either side. The <strong>supplier</strong> is responsible for delivering a display whose configured timing, scan file and driver operation meet the agreed specification, and for documenting the validated operating envelope clearly at acceptance. The <strong>customer / production</strong> is responsible for keeping the signal chain within the agreed configuration, and for bringing the real intended shooting conditions &mdash; expected camera models, frame rates, shutter ranges and the brightness operating point &mdash; into acceptance testing, not only to the site afterwards. Both parties should treat the brightness range and shutter range as first-class acceptance parameters, tested explicitly and recorded with photographic and oscilloscope evidence. The correct response to a dispute is to reproduce the condition, vary one parameter at a time, check against the human eye, and measure the optical waveform &mdash; then decide from evidence which layer changed.
+    </div>
+  </div>
+</section>
+
+<section id="s17">
+  <div class="prose">
+    <div class="sec-head"><span class="num">17</span><h2>Technical calculation appendix</h2></div>
+    <h3>PWM period from frequency</h3>
+    <div class="eqn">T = 1 / f
+50 Hz   &rarr; 20 ms        <span class="c">(one video frame)</span>
+3200 Hz &rarr; 312.5 &micro;s
+3840 Hz &rarr; 260.417 &micro;s</div>
+
+    <h3>The 64&times; relationship (one architecture)</h3>
+    <div class="eqn">3200 / 50 = 64        3840 / 60 = 64
+<span class="c">64 PWM/grayscale repetitions per video-frame period &mdash; not universal (see section 05)</span></div>
+
+    <h3>Conceptual brightness combination</h3>
+    <div class="eqn">code domain:   B_global &times; V_pixel            = 0.25 &times; 0.40      = 0.10   <span class="c">(&asymp; 10%)</span>
+linear light:  B_global &times; V_pixel<sup>&gamma;</sup> (&gamma;&asymp;2.2) = 0.25 &times; 0.133     &asymp; 0.033  <span class="c">(&asymp; 3.3%)</span></div>
+
+    <h3>Camera-frame vs display-frame walk</h3>
+    <div class="eqn">f_beat = | f_cam &minus; n&middot;f_disp |   for nearest integer n,  f_disp = 50 Hz
+25 fps &rarr; 0 Hz     50 fps &rarr; 0 Hz     59.94 fps &rarr; ~9.94 Hz     60 fps &rarr; 10 Hz     30 fps &rarr; 20 Hz</div>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Shutter vs PWM periods captured &mdash; N = f &times; t_exposure</caption>
+      <thead><tr><th>Shutter</th><th class="num">t_exp</th><th class="num">N @ 3200 Hz</th><th></th><th class="num">N @ 3840 Hz</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono">1/50</td><td class="num">20 000 &micro;s</td><td class="num">64.00</td><td><span class="tag ok">integer</span></td><td class="num">76.80</td><td><span class="tag warn">fractional</span></td></tr>
+        <tr><td class="mono">1/60</td><td class="num">16 667 &micro;s</td><td class="num">53.33</td><td><span class="tag warn">fractional</span></td><td class="num">64.00</td><td><span class="tag ok">integer</span></td></tr>
+        <tr><td class="mono">1/100</td><td class="num">10 000 &micro;s</td><td class="num">32.00</td><td><span class="tag ok">integer</span></td><td class="num">38.40</td><td><span class="tag warn">fractional</span></td></tr>
+        <tr><td class="mono">1/120</td><td class="num">8 333 &micro;s</td><td class="num">26.67</td><td><span class="tag warn">fractional</span></td><td class="num">32.00</td><td><span class="tag ok">integer</span></td></tr>
+        <tr><td class="mono">1/200</td><td class="num">5 000 &micro;s</td><td class="num">16.00</td><td><span class="tag ok">integer</span></td><td class="num">19.20</td><td><span class="tag warn">fractional</span></td></tr>
+        <tr><td class="mono">1/400</td><td class="num">2 500 &micro;s</td><td class="num">8.00</td><td><span class="tag ok">integer</span></td><td class="num">9.60</td><td><span class="tag warn">fractional</span></td></tr>
+        <tr><td class="mono">1/800</td><td class="num">1 250 &micro;s</td><td class="num">4.00</td><td><span class="tag ok">integer</span></td><td class="num">4.80</td><td><span class="tag warn">fractional</span></td></tr>
+        <tr><td class="mono">1/1000</td><td class="num">1 000 &micro;s</td><td class="num">3.20</td><td><span class="tag warn">fractional</span></td><td class="num">3.84</td><td><span class="tag warn">fractional</span></td></tr>
+        <tr><td class="mono">1/1600</td><td class="num">625 &micro;s</td><td class="num">2.00</td><td><span class="tag ok">integer</span></td><td class="num">2.40</td><td><span class="tag warn">fractional</span></td></tr>
+        <tr><td class="mono">1/2000</td><td class="num">500 &micro;s</td><td class="num">1.60</td><td><span class="tag warn">fractional</span></td><td class="num">1.92</td><td><span class="tag warn">fractional</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose">
+    <div class="note">
+      <span class="k">Sources and verification status</span>
+      No proprietary driver-IC, receiving-card or controller datasheets were consulted for this revision. The arithmetic is exact for the stated <em>nominal</em> values and the <em>simplified</em> models; real waveforms deviate. To close the open items for a specific installation, obtain and cite: (a) the driver-IC datasheet (grayscale timing generation, S-PWM depth, minimum pulse width, current-gain range, low-gray mode); (b) the receiving-card / scan-file documentation (scan ratio, GCLK, OE, subdivision, reported refresh); (c) the controller documentation (frame handling, conversion, brightness path); (d) the camera manufacturer documentation (sensor readout type, anti-flicker / synchro-scan behaviour); (e) a photodiode + oscilloscope capture of the delivered system at the agreed operating points.
+    </div>
+  </div>
+</section>
+
+<section id="s18">
+  <div class="prose">
+    <div class="sec-head"><span class="num">18</span><h2>Glossary</h2></div>
+  </div>
+  <div class="glossary"><dl id="glossaryList"></dl></div>
+</section>
+
+<section id="s19">
+  <div class="prose">
+    <div class="sec-head"><span class="num">19</span><h2>Field guide</h2></div>
+    <p>One page for technicians and camera operators. Print-friendly.</p>
+  </div>
+  <div class="fieldguide">
+    <h3>Perimeter LED display &mdash; on-camera quick guide</h3>
+    <div class="fg-grid">
+      <div class="fg-card">
+        <h4>The four clocks</h4>
+        <ul>
+          <li><strong>Content fps</strong> &mdash; want 25 or 50</li>
+          <li><strong>GPU output Hz</strong> &mdash; want 50.00, not 59.94/60</li>
+          <li><strong>PWM / grayscale refresh</strong> &mdash; 3200&nbsp;Hz here (64 per frame)</li>
+          <li><strong>Camera shutter</strong> &mdash; width of the recorded slice</li>
+        </ul>
+        <p>A 50&nbsp;Hz signal and a 3200&nbsp;Hz PWM refresh are <strong>different layers</strong>, not the same number.</p>
+      </div>
+      <div class="fg-card">
+        <h4>Our delivered 50&nbsp;Hz chain</h4>
+        <p>Media 25/50&nbsp;fps &rarr; player (no conversion) &rarr; GPU 50&nbsp;Hz &rarr; controller in&nbsp;50&nbsp;/&nbsp;out&nbsp;50, conversion off &rarr; validated scan file &rarr; driver PWM &asymp; 3200&nbsp;Hz &rarr; camera tested against this.</p>
+        <p><strong>Change any link &rarr; re-validate.</strong></p>
+      </div>
+      <div class="fg-card">
+        <h4>Why the eye is fine but the camera isn&rsquo;t</h4>
+        <p>The eye averages ~1/50&nbsp;s and fills the gaps. A camera at 1/1000&nbsp;s records a 1&nbsp;ms slice (~3 PWM periods) and, on CMOS, reads line-by-line &rarr; bands, flicker, colour shifts. A photo shows what one camera caught in one phase.</p>
+      </div>
+      <div class="fg-card">
+        <h4>Camera starting points (3200&nbsp;Hz / 50&nbsp;Hz)</h4>
+        <ul>
+          <li>Frame rate: <strong>50 or 25 fps</strong> (avoid 30/60/59.94)</li>
+          <li>Whole-period shutters: <strong>1/50, 1/100, 1/200, 1/400, 1/800&nbsp;s</strong></li>
+          <li>Whole-period helps but does not guarantee clean</li>
+          <li>Use synchro-scan / anti-flicker to fine-tune; genlock if available</li>
+        </ul>
+      </div>
+      <div class="fg-card">
+        <h4>Low brightness is the hard case</h4>
+        <p>Period stays 312.5&nbsp;&micro;s; the ON pulse shortens. 100%: looks continuous. 10%: ~31&nbsp;&micro;s spike in ~281&nbsp;&micro;s dark &rarr; artefacts far more likely. <strong>Test dark content and low brightness &mdash; not just white.</strong></p>
+      </div>
+      <div class="fg-card">
+        <h4>Fast triage</h4>
+        <ul>
+          <li>Visible to the eye too? &rarr; display fault (data, power, calibration, scan file)</li>
+          <li>Changes with shutter? &rarr; PWM/scan/camera timing</li>
+          <li>Rolling bands? &rarr; rolling shutter vs PWM/scan &mdash; synchro-scan or genlock</li>
+          <li>Stationary bands? &rarr; scan/OE banding &mdash; check scan file with vendor</li>
+          <li>Worse when dimmed? &rarr; raise brightness or re-commission at the new point</li>
+          <li>Changes with camera angle/position? &rarr; beating with floodlights or another screen</li>
+        </ul>
+      </div>
+    </div>
+    <p style="margin-top:1.3rem;font-size:.88rem;color:var(--ink-2)">
+      <strong>Golden rules.</strong> A high refresh number reduces risk; it does not guarantee a clean picture. Test at the real brightness and the real shutter speeds that will be used on air. Keep aperture, ISO, WB, zoom and content fixed while comparing shutters. When in doubt, measure the light with a photodiode + oscilloscope. If the chain changes, the previous result does not carry over.
+    </p>
+  </div>
+</section>
+  </main>
+</div>
+
+<footer class="footer">
+  <p><strong>Perimeter LED on Camera</strong> &mdash; engineering white paper, Rev&nbsp;1.0. Vendor-neutral: hardware-specific timing is labelled implementation-dependent. All waveforms and arithmetic use an explicitly simplified linear PWM model and are illustrative, not a circuit description. A vendor-specific annex (driver IC, receiving card, controller, scan file) can be appended once the exact hardware and scan-file parameters are supplied.</p>
+  <p style="margin-top:.6rem">Single self-contained HTML file. To publish: place as <code>index.html</code> in a repository, then enable GitHub&nbsp;Pages.</p>
+</footer>
+
+<script>
+(function(){
+"use strict";
+var RM = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+var $ = function(s,r){return (r||document).querySelector(s);};
+var $$ = function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+function el(tag,attrs,kids){var e=document.createElementNS(tag==='svg'||tag==='g'||tag==='rect'||tag==='line'||tag==='text'||tag==='path'||tag==='circle'||tag==='polyline'||tag==='polygon'?'http://www.w3.org/2000/svg':'http://www.w3.org/1999/xhtml',tag);attrs=attrs||{};for(var k in attrs){if(k==='text')e.textContent=attrs[k];else e.setAttribute(k,attrs[k]);}(kids||[]).forEach(function(c){e.appendChild(c);});return e;}
+
+/* ---------------------------------------------------------------- THEME */
+var root=document.documentElement, themeBtn=$('#themeBtn'), themeLabel=$('#themeLabel');
+function applyTheme(t){ if(t==='dark'||t==='light'){root.setAttribute('data-theme',t);} else {root.removeAttribute('data-theme');} themeLabel.textContent = t==='dark'?'Dark':t==='light'?'Light':'Auto'; }
+var savedT=null; try{savedT=localStorage.getItem('plc-theme');}catch(e){}
+applyTheme(savedT||'auto');
+themeBtn.addEventListener('click',function(){
+  var cur=root.getAttribute('data-theme')||'auto';
+  var next=cur==='auto'?'light':cur==='light'?'dark':'auto';
+  applyTheme(next); try{localStorage.setItem('plc-theme',next);}catch(e){}
+  redrawAll();
+});
+$('#printBtn').addEventListener('click',function(){window.print();});
+
+/* ---------------------------------------------------------------- TOC */
+var tocData=[
+ ['s1','01','Executive summary'],['s2','02','The complete timing chain'],['s3','03','Definitions and terminology'],
+ ['s4','04','50 Hz system requirements'],['s5','05','50 Hz, 3200 Hz and 3840 Hz'],['s6','06','How PWM creates brightness'],
+ ['s7','07','Global vs content brightness'],['s8','08','PWM duty vs current gain'],['s9','09','Effect of scan ratio'],
+ ['s10','10','Why low brightness is harder'],['s11','11','Camera shutter examples'],['s12','12','Human vision vs camera'],
+ ['s13','13','Common misconceptions'],['s14','14','Commissioning and test'],['s15','15','Troubleshooting decision tree'],
+ ['s16','16','Acceptance and responsibilities'],['s17','17','Calculation appendix'],['s18','18','Glossary'],['s19','19','Field guide']
+];
+var tocList=$('#tocList');
+tocData.forEach(function(d){
+  var li=document.createElement('li');
+  li.innerHTML='<a href="#'+d[0]+'"><span class="n">'+d[1]+'</span><span>'+d[2]+'</span></a>';
+  tocList.appendChild(li);
+});
+var tocLinks={};
+$$('#tocList a').forEach(function(a){tocLinks[a.getAttribute('href').slice(1)]=a;});
+var spy=new IntersectionObserver(function(ents){
+  ents.forEach(function(en){
+    if(en.isIntersecting){
+      for(var id in tocLinks){tocLinks[id].removeAttribute('aria-current');}
+      var a=tocLinks[en.target.id]; if(a){a.setAttribute('aria-current','true');
+        if(window.innerWidth>940) a.scrollIntoView({block:'nearest'});
+      }
+    }
+  });
+},{rootMargin:'-20% 0px -70% 0px'});
+$$('main section[id]').forEach(function(s){spy.observe(s);});
+var tocToggle=$('#tocToggle'), toc=$('#toc');
+tocToggle.addEventListener('click',function(){
+  var open=toc.classList.toggle('collapsed')===false;
+  tocToggle.setAttribute('aria-expanded',String(open));
+});
+$$('#tocList a').forEach(function(a){a.addEventListener('click',function(){ if(window.innerWidth<=940){toc.classList.add('collapsed');tocToggle.setAttribute('aria-expanded','false');}});});
+
+/* ---------------------------------------------------------------- SIGNAL CHAIN */
+var chainData=[
+ ['1','Media file','25 or 50 fps','A video file has a fixed number of unique images per second. It defines only how often the picture content may change &mdash; nothing about how fast the LEDs pulse.','A 30 fps file forced into a 50 Hz chain must be unevenly repeated &rarr; cadence beat on camera.'],
+ ['2','Playback software','decodes &amp; presents','Decodes the file and hands finished frames to the OS. May repeat frames (25&rarr;50), or drop/blend them if the rates do not divide.','Frame blending "to be safe" introduces motion artefacts that were not in the content.'],
+ ['3','Graphics card','50 Hz, fixed clock','Sends a continuous stream of complete frames on a fixed pixel clock &mdash; 50 per second whether or not the content changed. The first hard clock in the chain.','Set to 59.94/60 Hz while content is 50 fps &rarr; a 5:6 cadence &rarr; motion stutter and brightness beat.'],
+ ['4','LED controller','in 50 / out 50','Receives the GPU stream and drives the receiving cards. Can convert between input and output rates &mdash; in a 50 Hz delivery, conversion is off and both are 50 Hz. Applies global brightness and colour processing.','Frame multiplication or 60&rarr;50 conversion &rarr; dropped/interpolated frames &rarr; slow rolling brightness change.'],
+ ['5','Receiving card','latches &amp; drives','Latches each incoming frame and generates clock, latch, output-enable and grayscale data for the driver ICs. Runs its own internal refresh loop.','Wrong firmware or mixed scan files across cards &rarr; stationary banding between cabinets.'],
+ ['6','Scan-file timing','scan, bits, GCLK, OE','Sets scan ratio, grayscale bit depth, GCLK frequency, OE/blanking and PWM subdivision. Turns one 50 Hz frame into many high-frequency sub-cycles.','A 60 Hz scan file on a 50 Hz input &rarr; wrong per-frame PWM budget &rarr; altered linearity and low-gray banding.'],
+ ['7','LED driver IC','PWM &asymp; 3200 Hz','Holds the grayscale value per channel and switches the LED current on and off to build it, usually as many short sub-pulses per frame. Also sets current amplitude.','Very short pulses at low brightness hit the minimum pulse width &rarr; missing codes, colour crush.'],
+ ['8','LED pixels','light vs time','The physical result: a train of pulses whose height is current gain, whose width and spacing are PWM and scan timing. This waveform &mdash; not the spec sheet &mdash; is what the camera integrates.','&mdash;'],
+ ['9','Camera','fps + shutter + readout','Samples the waveform: frame rate sets how often, shutter sets how wide, sensor readout (global or rolling) sets whether all pixels sample at once. Also sees floodlights and daylight.','Rolling shutter + short exposure &rarr; each sensor line catches a different PWM/scan phase &rarr; bands.']
+];
+var chain=$('#chain');
+chainData.forEach(function(d){
+  var det=document.createElement('details'); det.className='stage';
+  det.innerHTML='<summary><span class="st-n">STAGE '+d[0]+'</span><span class="st-t">'+d[1]+'</span><span class="st-r">'+d[2]+'</span></summary>'+
+    '<div class="st-body">'+d[3]+(d[4]!=='&mdash;'?'<span class="mm"><strong>Mismatch here:</strong> '+d[4]+'</span>':'')+'</div>';
+  chain.appendChild(det);
+});
+
+/* ---------------------------------------------------------------- CANVAS HELPER */
+function fit(cv,cssH){
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  var w=cv.clientWidth||cv.parentNode.clientWidth;
+  if(cssH) cv.style.height=cssH+'px';
+  var h=cssH||cv.clientHeight;
+  cv.width=w*dpr; cv.height=h*dpr;
+  var ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx:ctx,w:w,h:h};
+}
+function cssVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+
+/* PWM emission integral: LED emits for first `ton` microseconds of each period T */
+function onUpTo(x,T,ton){ if(x<=0)return 0; var full=Math.floor(x/T); return full*ton+Math.min(x-full*T,ton); }
+function onBetween(a,b,T,ton){ return onUpTo(b,T,ton)-onUpTo(a,T,ton); }
+
+var SCOPE={bg:'#0a0e12',grid:'rgba(122,150,160,0.15)',gridS:'rgba(122,150,160,0.30)',ink:'#c9d5d8',dim:'#7e8e92',trace:'#37c2cc',glow:'rgba(55,194,204,0.28)',expo:'#e0a24c',expoFill:'rgba(224,162,76,0.16)',warn:'#e1685b',ok:'#4fbf7f'};
+
+/* ---------------------------------------------------------------- HERO CANVAS */
+var heroCv=$('#heroCanvas'), heroOut=$('#heroReadout'), heroT0=null;
+function drawHero(phase){
+  var f=fit(heroCv,320), ctx=f.ctx, w=f.w, h=f.h;
+  var padL=14,padR=14,padT=18,padB=26, gw=w-padL-padR, gh=h-padT-padB;
+  ctx.clearRect(0,0,w,h);
+  // grid
+  ctx.strokeStyle=SCOPE.grid; ctx.lineWidth=1;
+  for(var i=0;i<=10;i++){var x=padL+gw*i/10;ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+gh);ctx.stroke();}
+  for(var j=0;j<=4;j++){var y=padT+gh*j/4;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(padL+gw,y);ctx.stroke();}
+  // params: 3200 Hz, brightness 10%, static drive
+  var T=312.5, scan=1, W=T/scan, duty=0.10, ton=duty*W;
+  var spanUs=T*6; // ~6 periods across
+  var base=padT+gh-6, amp=gh-14;
+  function X(us){return padL+gw*us/spanUs;}
+  // trace
+  ctx.beginPath();
+  var lastOn=null;
+  for(var us=0;us<=spanUs;us+=0.5){
+    var loc=us%T; var on=(loc<ton)?1:0;
+    var y=base-on*amp;
+    if(us===0)ctx.moveTo(X(us),y); else ctx.lineTo(X(us),y);
+  }
+  ctx.strokeStyle=SCOPE.trace; ctx.lineWidth=2; ctx.shadowColor=SCOPE.glow; ctx.shadowBlur=8; ctx.stroke(); ctx.shadowBlur=0;
+  // exposure window: 1/1000 s = 1000 us, sweeping
+  var texp=1000;
+  var start=phase*(spanUs-texp);
+  ctx.fillStyle=SCOPE.expoFill;
+  ctx.fillRect(X(start),padT,X(start+texp)-X(start),gh);
+  ctx.strokeStyle=SCOPE.expo; ctx.lineWidth=1.5;
+  ctx.strokeRect(X(start),padT,X(start+texp)-X(start),gh);
+  // captured
+  var cap=onBetween(start,start+texp,T,ton)/texp; // fraction of peak
+  var rep=ton/T;
+  var pct=Math.round(cap*100), reppct=Math.round(rep*100);
+  ctx.fillStyle=SCOPE.dim; ctx.font='11px "IBM Plex Mono", monospace';
+  ctx.fillText('3200 Hz  ·  10% brightness  ·  1/1000 s shutter', padL, h-9);
+  ctx.textAlign='right';
+  ctx.fillStyle=Math.abs(cap-rep)>rep*0.25?SCOPE.warn:SCOPE.ok;
+  ctx.fillText('camera reads ≈ '+ (cap*100).toFixed(0) +'% of peak', padL+gw, h-9);
+  ctx.textAlign='left';
+  heroOut.textContent='reads '+pct+'% · true avg '+reppct+'%';
+}
+function heroLoop(t){
+  if(heroT0===null)heroT0=t;
+  var ph=((t-heroT0)/4200)%1;
+  ph = ph<0.5 ? ph*2 : (1-ph)*2; // ping-pong
+  drawHero(ph);
+  requestAnimationFrame(heroLoop);
+}
+if(RM){ drawHero(0.42); } else { requestAnimationFrame(heroLoop); }
+
+/* ---------------------------------------------------------------- FOUR CLOCKS SVG */
+function fourClocks(){
+  var host=$('#fourClocks'); host.innerHTML='';
+  var W=1000,H=290,x0=140,x1=960,bw=x1-x0;
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Four clocks drawn to scale">';
+  function lab(x,y,t,anchor,cls){return '<text x="'+x+'" y="'+y+'" text-anchor="'+(anchor||'end')+'" fill="'+(cls==='dim'?SCOPE.dim:SCOPE.ink)+'" font-family="IBM Plex Mono, monospace" font-size="12">'+t+'</text>';}
+  // Row 1: frame
+  s+='<rect x="'+x0+'" y="24" width="'+bw+'" height="30" rx="3" fill="none" stroke="'+SCOPE.trace+'" stroke-width="1.6"/>';
+  s+=lab(x0-14,43,'1 video frame');
+  s+=lab(x1,72,'20 ms  ·  50 Hz','end','dim');
+  // Row 2: 64 PWM periods
+  s+='<rect x="'+x0+'" y="92" width="'+bw+'" height="30" rx="3" fill="'+SCOPE.trace+'" fill-opacity="0.10" stroke="'+SCOPE.trace+'" stroke-width="1"/>';
+  for(var i=1;i<64;i++){var xx=x0+bw*i/64;s+='<line x1="'+xx+'" y1="92" x2="'+xx+'" y2="122" stroke="'+SCOPE.grid+'" stroke-width="1"/>';}
+  s+=lab(x0-14,111,'64 × PWM period');
+  s+=lab(x1,140,'312.5 µs each  ·  3200 Hz','end','dim');
+  // amber: shutter 3.2/64
+  var sw=bw*3.2/64;
+  s+='<rect x="'+x0+'" y="88" width="'+sw+'" height="38" fill="'+SCOPE.expoFill+'" stroke="'+SCOPE.expo+'" stroke-width="1.4"/>';
+  s+='<text x="'+(x0+sw+8)+'" y="86" fill="'+SCOPE.expo+'" font-family="IBM Plex Mono, monospace" font-size="11">1/1000 s = 3.2 PWM periods</text>';
+  // zoom connector from first period to row 3
+  s+='<path d="M'+x0+' 122 L'+x0+' 170 M'+(x0+bw/64)+' 122 L'+x1+' 170" stroke="'+SCOPE.dim+'" stroke-width="1" stroke-dasharray="3 3" fill="none"/>';
+  // Row 3: one period, 1/8 scan
+  s+='<rect x="'+x0+'" y="172" width="'+bw+'" height="30" rx="3" fill="none" stroke="'+SCOPE.ink+'" stroke-width="1"/>';
+  for(var k=1;k<8;k++){var xk=x0+bw*k/8;s+='<line x1="'+xk+'" y1="172" x2="'+xk+'" y2="202" stroke="'+SCOPE.gridS+'" stroke-width="1"/>';}
+  s+='<rect x="'+x0+'" y="172" width="'+(bw/8)+'" height="30" fill="'+SCOPE.trace+'" fill-opacity="0.35"/>';
+  s+=lab(x0-14,191,'one 312.5 µs period');
+  s+=lab(x1,220,'1/8 scan → 8 row windows ≈ 39 µs','end','dim');
+  // Row 4: within one row window, emission at 10%
+  s+='<rect x="'+x0+'" y="240" width="'+bw+'" height="26" rx="3" fill="none" stroke="'+SCOPE.ink+'" stroke-width="1"/>';
+  s+='<rect x="'+x0+'" y="240" width="'+(bw*0.10)+'" height="26" fill="'+SCOPE.trace+'"/>';
+  s+=lab(x0-14,257,'row window, 10% content');
+  s+=lab(x1,282,'≈ 3.9 µs actual emission','end','dim');
+  s+='</svg>';
+  host.innerHTML=s;
+}
+
+/* ---------------------------------------------------------------- DUTY MULTIPLES SVG */
+function dutyMultiples(){
+  var host=$('#dutyMultiples'); host.innerHTML='';
+  var levels=[[1,'100%'],[0.25,'25%'],[0.10,'10%'],[0.01,'1%']];
+  var W=1000,H=250, colW=W/4;
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="PWM waveforms at 100, 25, 10 and 1 percent duty">';
+  levels.forEach(function(lv,idx){
+    var cx=idx*colW+20, cw=colW-40, y0=40, gh=150;
+    s+='<text x="'+(cx+cw/2)+'" y="24" text-anchor="middle" fill="'+SCOPE.ink+'" font-family="IBM Plex Mono, monospace" font-size="13">'+lv[1]+'</text>';
+    // 3 periods
+    for(var p=0;p<3;p++){
+      var pw=cw/3, px=cx+p*pw;
+      s+='<line x1="'+px+'" y1="'+(y0+gh)+'" x2="'+(px+pw)+'" y2="'+(y0+gh)+'" stroke="'+SCOPE.grid+'" stroke-width="1"/>';
+      var onW=pw*Math.max(lv[0],0.012);
+      s+='<rect x="'+px+'" y="'+y0+'" width="'+onW+'" height="'+gh+'" fill="'+SCOPE.trace+'" fill-opacity="0.16"/>';
+      s+='<path d="M'+px+' '+(y0+gh)+' L'+px+' '+y0+' L'+(px+onW)+' '+y0+' L'+(px+onW)+' '+(y0+gh)+' L'+(px+pw)+' '+(y0+gh)+'" fill="none" stroke="'+SCOPE.trace+'" stroke-width="2"/>';
+    }
+    var onus=(312.5*lv[0]).toFixed(lv[0]<0.02?3:(lv[0]<1?2:1));
+    var offus=(312.5-312.5*lv[0]).toFixed(lv[0]<1?2:0);
+    s+='<text x="'+(cx+cw/2)+'" y="'+(y0+gh+26)+'" text-anchor="middle" fill="'+SCOPE.trace+'" font-family="IBM Plex Mono, monospace" font-size="11">ON '+onus+' µs</text>';
+    s+='<text x="'+(cx+cw/2)+'" y="'+(y0+gh+42)+'" text-anchor="middle" fill="'+SCOPE.dim+'" font-family="IBM Plex Mono, monospace" font-size="11">OFF '+offus+' µs</text>';
+  });
+  s+='</svg>'; host.innerHTML=s;
+}
+
+/* ---------------------------------------------------------------- DUTY vs GAIN SVG */
+function dutyGain(){
+  var host=$('#dutyGain'); host.innerHTML='';
+  var W=1000,H=240;
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Comparison of PWM dimming versus current-gain dimming at equal average luminance">';
+  function panel(x,title,note,drawFn){
+    var cw=W/2-60, cx=x+30, y0=44, gh=120;
+    s+='<text x="'+(cx+cw/2)+'" y="26" text-anchor="middle" fill="'+SCOPE.ink+'" font-family="IBM Plex Sans, sans-serif" font-size="13" font-weight="600">'+title+'</text>';
+    for(var p=0;p<3;p++){var pw=cw/3,px=cx+p*pw; s+='<line x1="'+px+'" y1="'+(y0+gh)+'" x2="'+(px+pw)+'" y2="'+(y0+gh)+'" stroke="'+SCOPE.grid+'" stroke-width="1"/>'; s+=drawFn(px,pw,y0,gh);}
+    s+='<text x="'+(cx+cw/2)+'" y="'+(y0+gh+28)+'" text-anchor="middle" fill="'+SCOPE.dim+'" font-family="IBM Plex Mono, monospace" font-size="11">'+note+'</text>';
+  }
+  panel(0,'Dimmed by PWM → 25%','short spike, deep dark gap',function(px,pw,y0,gh){
+    var onW=pw*0.25;
+    return '<rect x="'+px+'" y="'+y0+'" width="'+onW+'" height="'+gh+'" fill="'+SCOPE.trace+'" fill-opacity="0.28"/>'+
+      '<path d="M'+px+' '+(y0+gh)+' L'+px+' '+y0+' L'+(px+onW)+' '+y0+' L'+(px+onW)+' '+(y0+gh)+' L'+(px+pw)+' '+(y0+gh)+'" fill="none" stroke="'+SCOPE.trace+'" stroke-width="2"/>';
+  });
+  panel(W/2,'Dimmed by current gain → 25%','full-width pulse, lower amplitude',function(px,pw,y0,gh){
+    var onW=pw*0.92, hh=gh*0.25;
+    return '<rect x="'+px+'" y="'+(y0+gh-hh)+'" width="'+onW+'" height="'+hh+'" fill="'+SCOPE.trace+'" fill-opacity="0.28"/>'+
+      '<path d="M'+px+' '+(y0+gh)+' L'+px+' '+(y0+gh-hh)+' L'+(px+onW)+' '+(y0+gh-hh)+' L'+(px+onW)+' '+(y0+gh)+' L'+(px+pw)+' '+(y0+gh)+'" fill="none" stroke="'+SCOPE.trace+'" stroke-width="2"/>';
+  });
+  s+='<line x1="'+(W/2)+'" y1="30" x2="'+(W/2)+'" y2="'+(H-20)+'" stroke="'+SCOPE.grid+'" stroke-width="1"/>';
+  s+='<text x="'+(W/2)+'" y="'+(H-6)+'" text-anchor="middle" fill="'+SCOPE.dim+'" font-family="IBM Plex Mono, monospace" font-size="10">shaded area = equal average luminance</text>';
+  s+='</svg>'; host.innerHTML=s;
+}
+
+/* ---------------------------------------------------------------- PWM EXPLORER */
+var EX={freq:3200,scan:8,bright:25,content:100,shutterIdx:8,phase:35,gamma:2.2};
+var SHUT=[50,100,125,200,250,400,500,800,1000,1600,2000];
+(function(){var dl=$('#shutterTicks'); SHUT.forEach(function(v,i){var o=document.createElement('option');o.value=i;dl.appendChild(o);});})();
+var expCv=$('#expCanvas'), expRO=$('#expReadouts');
+
+function seg(id,key,cast){
+  $$('#'+id+' button').forEach(function(b){
+    b.addEventListener('click',function(){
+      $$('#'+id+' button').forEach(function(x){x.setAttribute('aria-pressed','false');});
+      b.setAttribute('aria-pressed','true');
+      EX[key]=cast(b.dataset.v); syncEx(); drawExplorer();
+    });
+  });
+}
+seg('exFreq','freq',Number); seg('exScan','scan',Number); seg('exGamma','gamma',Number);
+['exBright:bright','exContent:content','exShutter:shutterIdx','exPhase:phase'].forEach(function(m){
+  var p=m.split(':'), inp=$('#'+p[0]);
+  inp.addEventListener('input',function(){EX[p[1]]=Number(inp.value);syncEx();drawExplorer();});
+});
+function syncEx(){
+  $('#exFreqV').textContent=EX.freq+' Hz';
+  $('#exScanV').textContent='1/'+EX.scan;
+  $('#exBrightV').textContent=EX.bright+'%';
+  $('#exContentV').textContent=EX.content+'%';
+  $('#exShutterV').textContent='1/'+SHUT[EX.shutterIdx]+' s';
+  $('#exPhaseV').textContent=(EX.phase/100).toFixed(2)+' frame';
+  $('#exGammaV').textContent=EX.gamma===1?'code (linear)':'gamma 2.2';
+}
+function roCell(label,val,unit,cls){
+  return '<div class="ro"><div class="rl">'+label+'</div><div class="rv'+(cls?' '+cls:'')+'">'+val+(unit?'<span class="u">'+unit+'</span>':'')+'</div></div>';
+}
+function drawExplorer(){
+  var f=fit(expCv,300),ctx=f.ctx,w=f.w,h=f.h;
+  var Tf=20000; // 50 Hz frame in us
+  var T=1e6/EX.freq;
+  var Wwin=T/EX.scan;
+  var dutyEff=(EX.bright/100)*Math.pow(EX.content/100,EX.gamma);
+  var ton=dutyEff*Wwin;
+  var texp=1e6/SHUT[EX.shutterIdx];
+  var sBase=(EX.phase/100)*Tf;
+
+  // layout: left trace area, right rolling strip
+  var stripW=54, gap=14;
+  var padL=12,padT=14,padB=24;
+  var gw=w-padL-stripW-gap-12, gh=h-padT-padB;
+  ctx.clearRect(0,0,w,h);
+  // decide span: show max(5 periods, exposure*1.4)
+  var span=Math.max(T*5, texp*1.5);
+  var traceStart=Math.max(0, sBase - (span-texp)/2);
+  function X(us){return padL+gw*(us-traceStart)/span;}
+  var base=padT+gh-4, amp=gh-12;
+  // grid
+  ctx.strokeStyle=SCOPE.grid;ctx.lineWidth=1;
+  for(var i=0;i<=10;i++){var gx=padL+gw*i/10;ctx.beginPath();ctx.moveTo(gx,padT);ctx.lineTo(gx,padT+gh);ctx.stroke();}
+  for(var jj=0;jj<=4;jj++){var gy=padT+gh*jj/4;ctx.beginPath();ctx.moveTo(padL,gy);ctx.lineTo(padL+gw,gy);ctx.stroke();}
+  // row-active window shading
+  var p0=Math.floor(traceStart/T);
+  ctx.fillStyle='rgba(122,150,160,0.08)';
+  for(var pi=p0;pi<=(traceStart+span)/T+1;pi++){ var wx0=X(pi*T), wx1=X(pi*T+Wwin); ctx.fillRect(Math.max(wx0,padL),padT, Math.min(wx1,padL+gw)-Math.max(wx0,padL), gh); }
+  // exposure window
+  ctx.fillStyle=SCOPE.expoFill; ctx.fillRect(X(sBase),padT,X(sBase+texp)-X(sBase),gh);
+  ctx.strokeStyle=SCOPE.expo;ctx.lineWidth=1.5;ctx.strokeRect(X(sBase),padT,X(sBase+texp)-X(sBase),gh);
+  // trace
+  ctx.beginPath();
+  for(var us=traceStart;us<=traceStart+span;us+=Math.max(0.25,span/2400)){
+    var loc=us-Math.floor(us/T)*T;
+    var on=(loc<ton)?1:0;
+    var y=base-on*amp;
+    if(us===traceStart)ctx.moveTo(X(us),y);else ctx.lineTo(X(us),y);
+  }
+  ctx.strokeStyle=SCOPE.trace;ctx.lineWidth=2;ctx.shadowColor=SCOPE.glow;ctx.shadowBlur=6;ctx.stroke();ctx.shadowBlur=0;
+  // labels
+  ctx.fillStyle=SCOPE.dim;ctx.font='10px "IBM Plex Mono", monospace';
+  ctx.fillText(Math.round(span)+' µs window',padL+2,padT+gh+16);
+  ctx.textAlign='right';ctx.fillStyle=SCOPE.expo;ctx.fillText('exposure 1/'+SHUT[EX.shutterIdx]+' s',padL+gw,padT+gh+16);ctx.textAlign='left';
+
+  // ROLLING STRIP
+  var rows=110, sx=padL+gw+gap;
+  var reps=ton/T; // representative fraction of peak
+  var vals=[], vmin=1e9,vmax=-1e9;
+  for(var r=0;r<rows;r++){
+    var srow=(EX.phase/100)*Tf + (r/rows)*Tf;
+    var frac=onBetween(srow,srow+texp,T,ton)/texp;
+    var ratio=reps>0?frac/reps:1;
+    vals.push(ratio); if(ratio<vmin)vmin=ratio; if(ratio>vmax)vmax=ratio;
+  }
+  for(var r2=0;r2<rows;r2++){
+    var v=vals[r2]; var g=Math.max(0,Math.min(1, 0.12+0.55*v));
+    ctx.fillStyle='rgb('+Math.round(g*90+30)+','+Math.round(g*150+40)+','+Math.round(g*155+45)+')';
+    ctx.fillRect(sx, padT + gh*r2/rows, stripW, gh/rows+1);
+  }
+  ctx.strokeStyle='rgba(201,213,216,0.25)';ctx.strokeRect(sx,padT,stripW,gh);
+  ctx.fillStyle=SCOPE.dim;ctx.font='9px "IBM Plex Mono", monospace';ctx.textAlign='center';
+  ctx.fillText('sensor',sx+stripW/2,padT-4);ctx.fillText('top→bottom',sx+stripW/2,padT+gh+14);ctx.textAlign='left';
+
+  // GLOBAL-SHUTTER capture ratio at chosen phase
+  var capFrac=onBetween(sBase,sBase+texp,T,ton)/texp;
+  var capRatio=reps>0?capFrac/reps:1;
+  var bandContrast=(vmax-vmin); // in ratio units
+  var Nper=texp/T;
+  var isInt=Math.abs(Nper-Math.round(Nper))<0.02;
+
+  var capCls = Math.abs(capRatio-1)>0.15?'warn':(Math.abs(capRatio-1)>0.06?'':'ok');
+  var bandCls = bandContrast>0.5?'warn':(bandContrast>0.15?'':'ok');
+  expRO.innerHTML=
+    roCell('PWM period','T = '+T.toFixed(1),'µs')+
+    roCell('ON per row window','t_on ≈ '+ton.toFixed(ton<10?2:1),'µs')+
+    roCell('Row-active window','T/scan ≈ '+Wwin.toFixed(1),'µs')+
+    roCell('Effective duty','≈ '+(dutyEff*100).toFixed(dutyEff<0.1?2:1),'%')+
+    roCell('Periods in exposure','N = '+Nper.toFixed(2),'',isInt?'ok':'')+
+    roCell('Global-shutter capture','≈ '+Math.round(capRatio*100),'%',capCls)+
+    roCell('Rolling-shutter band contrast','≈ '+Math.round(bandContrast*100),'%',bandCls)+
+    roCell('Integer periods?', isInt?'yes':'no','',isInt?'ok':'warn');
+}
+syncEx();
+
+/* ---------------------------------------------------------------- SHUTTER CHART */
+var shFreq=3200;
+$$('#shFreq button').forEach(function(b){b.addEventListener('click',function(){
+  $$('#shFreq button').forEach(function(x){x.setAttribute('aria-pressed','false');});
+  b.setAttribute('aria-pressed','true'); shFreq=Number(b.dataset.v);
+  $('#shChartFreq').textContent=shFreq+' Hz'; shutterChart();
+});});
+var SHLIST=[50,60,100,120,200,240,400,500,800,1000,1600,2000];
+var tooltip=$('#tooltip');
+function showTip(e,txt){tooltip.textContent=txt;tooltip.style.opacity='1';tooltip.style.left=Math.min(e.clientX+12,window.innerWidth-200)+'px';tooltip.style.top=(e.clientY-10)+'px';}
+function hideTip(){tooltip.style.opacity='0';}
+function shutterChart(){
+  var host=$('#shutterChart'); host.innerHTML='';
+  var W=1000,H=390, padL=92,padR=60,padT=40,padB=44;
+  var gw=W-padL-padR, gh=H-padT-padB;
+  var maxN=0; var data=SHLIST.map(function(d){var N=shFreq/d; if(N>maxN)maxN=N; return {d:d,N:N,int:Math.abs(N-Math.round(N))<0.02};});
+  maxN=Math.ceil(maxN/8)*8;
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Bar chart of PWM periods captured for each shutter speed at '+shFreq+' hertz">';
+  s+='<text x="'+(padL-14)+'" y="'+(padT-16)+'" text-anchor="start" fill="'+SCOPE.dim+'" font-family="IBM Plex Sans, sans-serif" font-size="11" letter-spacing="0.04em">PWM PERIODS CAPTURED</text>';
+  // gridlines + y ticks
+  for(var t=0;t<=maxN;t+=8){var y=padT+gh-(t/maxN)*gh; s+='<line x1="'+padL+'" y1="'+y+'" x2="'+(padL+gw)+'" y2="'+y+'" stroke="'+SCOPE.grid+'" stroke-width="1"/>'; s+='<text x="'+(padL-10)+'" y="'+(y+4)+'" text-anchor="end" fill="'+SCOPE.dim+'" font-family="IBM Plex Mono, monospace" font-size="11">'+t+'</text>';}
+  var bw=gw/data.length;
+  data.forEach(function(o,i){
+    var bx=padL+i*bw+bw*0.18, bwi=bw*0.64;
+    var bh=(o.N/maxN)*gh, by=padT+gh-bh;
+    var col=o.int?SCOPE.ok:SCOPE.expo;
+    s+='<rect class="shbar" data-i="'+i+'" x="'+bx+'" y="'+by+'" width="'+bwi+'" height="'+bh+'" rx="4" fill="'+col+'" fill-opacity="0.9"/>';
+    s+='<text x="'+(bx+bwi/2)+'" y="'+(by-6)+'" text-anchor="middle" fill="'+SCOPE.ink+'" font-family="IBM Plex Mono, monospace" font-size="10">'+o.N.toFixed(o.int?0:2)+'</text>';
+    s+='<text x="'+(bx+bwi/2)+'" y="'+(padT+gh+18)+'" text-anchor="middle" fill="'+SCOPE.dim+'" font-family="IBM Plex Mono, monospace" font-size="10">1/'+o.d+'</text>';
+  });
+  s+='<line x1="'+padL+'" y1="'+(padT+gh)+'" x2="'+(padL+gw)+'" y2="'+(padT+gh)+'" stroke="'+SCOPE.gridS+'" stroke-width="1"/>';
+  s+='</svg>';
+  host.innerHTML=s;
+  $$('.shbar',host).forEach(function(rect){
+    var o=data[+rect.dataset.i];
+    rect.addEventListener('mousemove',function(e){showTip(e,'1/'+o.d+' s → '+o.N.toFixed(3)+' PWM periods — '+(o.int?'whole number':'fractional'));});
+    rect.addEventListener('mouseleave',hideTip);
+  });
+}
+
+/* ---------------------------------------------------------------- VISION CANVAS */
+var visCv=$('#visionCanvas'), visT0=null;
+function drawVision(t){
+  var f=fit(visCv,300),ctx=f.ctx,w=f.w,h=f.h;
+  ctx.clearRect(0,0,w,h);
+  var T=312.5, duty=0.28, ton=duty*T;
+  var padL=12,padR=12,padT=16, traceH=110, gw=w-padL-padR;
+  var span=T*8;
+  function X(us){return padL+gw*us/span;}
+  var base=padT+traceH-4, amp=traceH-12;
+  // grid
+  ctx.strokeStyle=SCOPE.grid;ctx.lineWidth=1;
+  for(var i=0;i<=8;i++){var gx=padL+gw*i/8;ctx.beginPath();ctx.moveTo(gx,padT);ctx.lineTo(gx,padT+traceH);ctx.stroke();}
+  // trace
+  ctx.beginPath();
+  for(var us=0;us<=span;us+=0.5){var loc=us%T;var on=(loc<ton)?1:0;var y=base-on*amp;if(us===0)ctx.moveTo(X(us),y);else ctx.lineTo(X(us),y);}
+  ctx.strokeStyle=SCOPE.trace;ctx.lineWidth=2;ctx.shadowColor=SCOPE.glow;ctx.shadowBlur=6;ctx.stroke();ctx.shadowBlur=0;
+  // moving narrow window
+  var ph = RM?0.3:(((t-visT0)/3600)%1);
+  ph = ph<0.5?ph*2:(1-ph)*2;
+  var texp=T*0.9;
+  var start=ph*(span-texp);
+  ctx.fillStyle=SCOPE.expoFill;ctx.fillRect(X(start),padT,X(start+texp)-X(start),traceH);
+  ctx.strokeStyle=SCOPE.expo;ctx.lineWidth=1.5;ctx.strokeRect(X(start),padT,X(start+texp)-X(start),traceH);
+  var camRead=onBetween(start,start+texp,T,ton)/texp/duty; // ratio to average
+  var eyeRead=1;
+  // gauges
+  var gy=padT+traceH+34, gw2=(w-36)/2;
+  function gauge(gx,label,val,col){
+    ctx.fillStyle=SCOPE.dim;ctx.font='11px "IBM Plex Mono", monospace';ctx.fillText(label,gx,gy-10);
+    ctx.strokeStyle='rgba(201,213,216,0.25)';ctx.strokeRect(gx,gy,gw2,20);
+    ctx.fillStyle=col;ctx.fillRect(gx,gy,gw2*Math.max(0,Math.min(1,val/1.8)),20);
+    ctx.fillStyle=SCOPE.ink;ctx.font='12px "IBM Plex Mono", monospace';
+    ctx.fillText((val*100).toFixed(0)+'% of average',gx+8,gy+34);
+  }
+  gauge(12,'HUMAN EYE  (wide window, persistence)',eyeRead,'rgba(55,194,204,0.5)');
+  gauge(w-12-gw2,'CAMERA  (1/1000 s window, this phase)',camRead, Math.abs(camRead-1)>0.35?SCOPE.warn:SCOPE.ok);
+  if(!RM)requestAnimationFrame(drawVision);
+}
+if(RM){visT0=0;drawVision(0);} else {visT0=performance.now();requestAnimationFrame(function(t){visT0=t;drawVision(t);});}
+
+/* ---------------------------------------------------------------- DECISION TREE */
+var TREE={
+ start:{q:'You see an artefact in a photo or recording of the display.',sub:'Is the same artefact visible to the naked eye, standing at the display?',a:[['Yes, I can see it too','eye'],['No — only on camera','shutter']]},
+ eye:{end:1,title:'Treat it as a display fault first',body:'This is not a camera-timing effect. Check data cabling and integrity, power distribution and voltage, module and calibration health, and confirm every receiving card runs the same scan file version.'},
+ shutter:{q:'Only on camera.',sub:'Does the artefact change when you change the camera shutter speed?',a:[['No change','framerate'],['Yes, it changes','lowb']]},
+ framerate:{q:'Shutter has no effect.',sub:'Does it change with camera frame rate, shooting angle or position?',a:[['Yes','beat'],['No','cadence']]},
+ beat:{end:1,title:'Beat with another light source',body:'The display is beating against mains-powered floodlights (50 Hz electrical / 100 Hz optical), another LED screen, or a GPU/controller cadence problem. Identify and isolate the other source; check venue lighting first.'},
+ cadence:{end:1,title:'Check the frame-rate chain',body:'Confirm content is 25 or 50 fps, GPU output is 50.00 Hz, and controller input and output are both 50 Hz and locked. Disable any frame-rate conversion. A cadence mismatch shows as periodic motion judder or a slow brightness beat.'},
+ lowb:{q:'The shutter changes it.',sub:'Is the artefact worse at low brightness or on dark content?',a:[['Yes, worse when darker','oppoint'],['No, similar at all levels','bands']]},
+ oppoint:{q:'Worse when darker.',sub:'Is global brightness set below the operating point the system was validated at?',a:[['Yes, it is run darker','raise'],['No, it is at the agreed point','measure']]},
+ raise:{end:1,title:'Restore the validated operating point',body:'Raise global brightness to the agreed point, or formally re-commission at the lower point. Lower brightness shortens the ON pulse and lengthens the dark gap, which is what the camera is resolving. Ask the vendor whether the current-gain / PWM split can be re-tuned for low-brightness operation.'},
+ measure:{end:1,title:'Measure the optical waveform',body:'At this brightness, capture the light with a photodiode and oscilloscope on white and on a dark colour. Review the low-grayscale algorithm, scan ratio and PWM subdivision with the vendor.'},
+ bands:{q:'Similar at all levels.',sub:'Are the bands stationary in the frame, or do they roll and scroll?',a:[['They roll or scroll','rolling'],['They stay still','static']]},
+ rolling:{end:1,title:'Rolling-shutter vs PWM/scan phase',body:'The sensor’s line-by-line readout is beating against the PWM, scan or OE frequency. Use the camera’s anti-flicker / variable (synchro-scan) shutter to find a clean value, move to a shutter that captures a whole number of PWM periods for the measured refresh, or genlock the camera to reference.'},
+ static:{end:1,title:'Scan-line / OE banding',body:'Review the scan file, receiving-card configuration and OE/blanking timing with the vendor. Confirm all cards run the same scan file version.'}
+};
+var treeHost=$('#tree'), treePath=[];
+function renderTree(){
+  treeHost.innerHTML='';
+  var wrap=document.createElement('div'); wrap.className='q';
+  var path=document.createElement('div'); path.className='path';
+  treePath.forEach(function(step,i){
+    var d=document.createElement('div'); d.className='step';
+    d.innerHTML='<span class="dot">'+(i+1)+'</span><span class="txt"><b>'+step.q+'</b> &mdash; '+step.chose+'</span>';
+    path.appendChild(d);
+  });
+  wrap.appendChild(path);
+  var cur=treePath.length?TREE[treePath[treePath.length-1].to]:TREE.start;
+  if(!treePath.length){
+    var n0=TREE.start;
+    var box=document.createElement('div');
+    box.innerHTML='<div class="qtext">'+n0.q+'</div><div class="qsub">'+n0.sub+'</div>';
+    var ans=document.createElement('div'); ans.className='answers';
+    n0.a.forEach(function(a){var b=document.createElement('button');b.textContent=a[0];b.onclick=function(){treePath.push({q:n0.sub,chose:a[0],to:a[1]});renderTree();};ans.appendChild(b);});
+    box.appendChild(ans); wrap.appendChild(box);
+  } else if(cur.end){
+    var out=document.createElement('div'); out.className='outcome';
+    out.innerHTML='<h4>'+cur.title+'</h4><p>'+cur.body+'</p>';
+    wrap.appendChild(out);
+  } else {
+    var box2=document.createElement('div');
+    box2.innerHTML='<div class="qtext">'+cur.q+'</div><div class="qsub">'+cur.sub+'</div>';
+    var ans2=document.createElement('div'); ans2.className='answers';
+    cur.a.forEach(function(a){var b=document.createElement('button');b.textContent=a[0];b.onclick=function(){treePath.push({q:cur.sub,chose:a[0],to:a[1]});renderTree();};ans2.appendChild(b);});
+    box2.appendChild(ans2); wrap.appendChild(box2);
+  }
+  if(treePath.length){
+    var rs=document.createElement('button'); rs.className='restart'; rs.textContent='↺ Start over';
+    rs.onclick=function(){treePath=[];renderTree();};
+    wrap.appendChild(rs);
+  }
+  treeHost.appendChild(wrap);
+}
+renderTree();
+
+/* ---------------------------------------------------------------- CHECKLIST */
+var CL=[
+ 'Confirm the exact media frame rate — inspect the actual file (metadata and a frame-count check), not the brief. Confirm 25.000 or 50.000 fps.',
+ 'Confirm the OS and graphics-card output are actually 50 Hz — check OS display settings and the GPU control panel. Distinguish 50.000 from 59.94/60 Hz.',
+ 'Confirm the LED controller input status reports 50 Hz and “locked / valid”. Record model, firmware and the input reading.',
+ 'Confirm the controller output and receiving-card configuration. Frame-rate conversion / frame multiplication OFF.',
+ 'Record the exact scan-file version and parameters: scan ratio, grayscale bits, GCLK, OE settings, PWM subdivision, driver-IC mode bits.',
+ 'Confirm the configured or reported PWM/grayscale refresh. Flag it as configured, not measured, until step 13.',
+ 'Test a pattern set: full white; full red/green/blue; 50% grey; gradients; a low-grayscale ramp (codes ~1–32); moving content at the production frame rate.',
+ 'Test at 100%, 50%, 25% and 10% global brightness for each relevant pattern. Note the agreed operating point and minimum.',
+ 'Photograph / record using a controlled shutter-speed series. Tripod, same framing, same distance.',
+ 'Keep aperture, ISO, white balance, focal length, focus and content identical across the comparison set. Only the shutter changes (then, in a second pass, brightness).',
+ 'Test shutter settings 1/50, 1/100, 1/200, 1/400, 1/800, 1/1000 s. Add 1/60, 1/120, 1/500, 1/2000 s if 60 Hz-referenced cameras will be present.',
+ 'If available, use the camera’s variable-shutter / synchro-scan / high-frequency anti-flicker function to search for the cleanest exposure. Record the value found.',
+ 'For engineering verification, measure the actual optical waveform with a fast photodiode and oscilloscope — at 100% white and the agreed low operating point, on white and on a dark colour.',
+ 'Record whether the measured waveform changes with global brightness, grayscale level, colour and scan-file configuration.',
+ 'Do not rely only on the advertised “maximum refresh rate.” Base acceptance on the measured waveform plus the on-camera test set at real operating conditions.'
+];
+var clList=$('#clList'), clBar=$('#clBar'), clCount=$('#clCount');
+var clState={}; try{clState=JSON.parse(localStorage.getItem('plc-checklist')||'{}');}catch(e){}
+CL.forEach(function(txt,i){
+  var li=document.createElement('li');
+  var lb=document.createElement('label');
+  var cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!clState[i];
+  cb.addEventListener('change',function(){clState[i]=cb.checked;try{localStorage.setItem('plc-checklist',JSON.stringify(clState));}catch(e){}updateCL();});
+  var n=document.createElement('span'); n.className='n'; n.textContent=(i+1<10?'0':'')+(i+1);
+  var t=document.createElement('span'); t.className='t'; t.textContent=txt;
+  lb.appendChild(cb);lb.appendChild(n);lb.appendChild(t);li.appendChild(lb);clList.appendChild(li);
+});
+function updateCL(){
+  var done=Object.keys(clState).filter(function(k){return clState[k];}).length;
+  clBar.style.width=(done/CL.length*100)+'%';
+  clCount.textContent=done+' / '+CL.length;
+}
+$('#clReset').addEventListener('click',function(){clState={};try{localStorage.removeItem('plc-checklist');}catch(e){}$$('#clList input').forEach(function(c){c.checked=false;});updateCL();});
+updateCL();
+
+/* ---------------------------------------------------------------- CSV */
+$('#csvBtn').addEventListener('click',function(){
+  var headers=['Test ID','Pattern','Brightness %','Camera fps','Shutter','Aperture','ISO','WB','Focal length','Sensor type','Anti-flicker used','Result','Artefact type','Band orientation & spacing','Changes with phase between frames','Measured optical period (us)','Measured modulation depth %','Photo/file reference','Notes'];
+  var rows=[headers.join(',')];
+  for(var i=0;i<12;i++)rows.push(headers.map(function(){return '';}).join(','));
+  var blob=new Blob([rows.join('\r\n')],{type:'text/csv'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='perimeter-led-camera-test-template.csv';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+});
+
+/* ---------------------------------------------------------------- GLOSSARY */
+var GLOSS=[
+ ['Anti-flicker (camera)','A camera mode that adjusts or fine-tunes exposure timing to minimise banding from artificial light.'],
+ ['Beat / beating','A slow periodic variation produced when two similar frequencies (camera frame rate and display frame rate) are not equal.'],
+ ['Cadence','The repeating pattern of how content frames map to output frames (2:2 for 25 fps → 50 Hz).'],
+ ['Calibration coefficients','Per-pixel, per-channel gain and offset corrections for uniformity and colour.'],
+ ['Content frame rate (fps)','Unique images per second in the media file.'],
+ ['Current gain / global current','The current amplitude the driver IC delivers to the LED during its ON time.'],
+ ['Duty cycle','Fraction of a PWM period the LED is ON.'],
+ ['Flicker-fusion threshold','The modulation frequency above which a light appears steady to a human observer.'],
+ ['Frame-rate conversion','A controller feature that changes the frame rate between input and output.'],
+ ['GCLK / DCLK','The high-speed grayscale clock inside the driver IC that shifts PWM bits; much higher than the refresh rate.'],
+ ['Genlock','Locking a camera’s timing to a common studio reference.'],
+ ['Global / rolling shutter','Global: all sensor pixels exposed simultaneously. Rolling: pixels exposed line-by-line with a moving window.'],
+ ['Global (display) brightness','A system-wide brightness scaling applied to all pixels.'],
+ ['Grayscale / PWM refresh rate','How often each LED repeats its full brightness-pulse pattern (e.g. 3200 Hz). Often the “visual refresh rate” on the spec sheet.'],
+ ['Graphics-card output refresh (Hz)','How often the GPU transmits a complete frame over the cable.'],
+ ['Hybrid PWM/PAM','Combining pulse-width modulation with pulse-amplitude (current) modulation, often for low grays.'],
+ ['LED controller / processor','The device that receives the video signal and drives the receiving cards.'],
+ ['Low-grayscale algorithm','Special driver/controller handling of very dark levels to preserve linearity and colour.'],
+ ['Modulation depth','How much the light varies between peak and trough within a cycle (0% = steady, 100% = fully off between pulses).'],
+ ['OE / blanking','Output-Enable: a signal that forces driver channels off for part of each row period.'],
+ ['Perimeter display','LED boards around a field of play, seen by spectators and cameras simultaneously.'],
+ ['Phase (exposure phase)','Where in the PWM/scan cycle the camera’s exposure window begins.'],
+ ['PWM','Pulse-width modulation: setting average brightness by switching the LED on and off rapidly and varying the ON fraction.'],
+ ['Receiving card','The board on or near the panel that latches frames and generates the driver drive signals.'],
+ ['Row-scanning frequency','How often a multiplexed scanner returns to the same row group.'],
+ ['S-PWM','Scrambled / segmented PWM: splitting each pixel’s per-frame ON time into many short sub-pulses spread across the frame to raise visible flicker frequency.'],
+ ['Scan file / cabinet file','The configuration file that sets scan ratio, grayscale bits, GCLK, OE and driver mode for the receiving card.'],
+ ['Scan ratio (multiplex ratio)','How many row groups share each driver output (e.g. 1/8).'],
+ ['Shutter / exposure time','How long the camera sensor integrates light per captured frame.'],
+ ['Synchro-scan / variable shutter','A camera feature allowing a continuously adjustable shutter time to match a light source.'],
+ ['Visual refresh rate','Vendor term for the effective flicker frequency after PWM subdivision; may differ from the lowest optical fundamental present.']
+];
+var gl=$('#glossaryList');
+GLOSS.forEach(function(g){var d=document.createElement('div');d.innerHTML='<dt>'+g[0]+'</dt><dd>'+g[1]+'</dd>';gl.appendChild(d);});
+
+/* ---------------------------------------------------------------- REDRAW / RESIZE */
+function redrawAll(){
+  fourClocks(); dutyMultiples(); dutyGain(); shutterChart(); drawExplorer();
+  if(RM){drawHero(0.42); drawVision(0);}
+}
+redrawAll();
+var rt;
+window.addEventListener('resize',function(){clearTimeout(rt);rt=setTimeout(redrawAll,180);});
+})();
+</script>
+</body>
+</html>
+
