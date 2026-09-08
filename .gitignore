@@ -7,4 +7,5 @@ Thumbs.db
 
 # local preview scratch
 _prev_*.html
+_dbg.html
 *.png
