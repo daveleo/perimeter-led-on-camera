@@ -3,1256 +3,631 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PWM &amp; Camera Simulator</title>
-<meta name="description" content="An engineering simulator for how a PWM-driven LED display behaves on camera: PWM scheme, refresh, scan ratio, dimming method, driver limits and camera exposure, with a simulated rolling-shutter capture, flicker spectrum and shutter-sweep analysis.">
+<title>PWM &amp; Camera Check</title>
+<meta name="description" content="See how an LED display's frame rate, grayscale refresh and scan ratio interact with a camera's frame rate and shutter to produce scanlines, banding and flicker on recorded footage.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  color-scheme: dark;
-  --bg:#0a0d11;
-  --panel:#111820;
-  --panel-2:#0d141b;
-  --rail:#0e151c;
-  --sunken:#080b0e;
-  --ink:#e8edf1;
-  --ink-2:#9aa7b2;
-  --ink-3:#657079;
-  --line:#212a34;
-  --line-2:#19212a;
-  --accent:#3cc7d0;
-  --accent-2:#5ad6de;
-  --accent-soft:#0f2e30;
-  --amber:#e2a24c;
-  --amber-soft:#2a2013;
-  --red:#e46a5c;
-  --red-soft:#2c1a17;
-  --green:#43b878;
-  --green-soft:#12271c;
-  --violet:#9a86e8;
-  --grid:rgba(120,150,160,.14);
-  --grid-2:rgba(120,150,160,.30);
-  --shadow:0 1px 2px rgba(0,0,0,.4),0 14px 36px -16px rgba(0,0,0,.6);
-}
-:root[data-theme="light"]{
   color-scheme: light;
-  --bg:#e9edf0;
-  --panel:#fbfcfd;
-  --panel-2:#f1f4f6;
-  --rail:#f4f6f8;
-  --sunken:#e6eaed;
-  --ink:#131a21;
-  --ink-2:#4f5a65;
-  --ink-3:#828d97;
-  --line:#d5dce1;
-  --line-2:#e3e8eb;
-  --accent:#0c7a83;
-  --accent-2:#0a666e;
-  --accent-soft:#dceff0;
-  --amber:#a5610f;
-  --amber-soft:#f4ecdd;
-  --red:#b23a30;
-  --red-soft:#f5e3e1;
-  --green:#0f7038;
-  --green-soft:#e0efe6;
-  --violet:#5b45a6;
-  --grid:rgba(60,90,100,.14);
-  --grid-2:rgba(60,90,100,.28);
-  --shadow:0 1px 2px rgba(16,23,33,.06),0 12px 30px -16px rgba(16,23,33,.2);
+  --bg:#eef1f3; --card:#ffffff; --card-2:#f4f6f8; --sunken:#e7ebee;
+  --ink:#131a21; --ink-2:#4f5a65; --ink-3:#828d97;
+  --line:#d7dde2; --line-2:#e5eaed;
+  --accent:#0c7a83; --accent-2:#0a666e; --accent-soft:#dceff0;
+  --amber:#b06a12; --amber-soft:#f6ecdd;
+  --red:#b23a30; --red-soft:#f6e3e1;
+  --green:#127a3e; --green-soft:#e0efe6;
+  --shadow:0 1px 2px rgba(16,23,33,.05),0 10px 28px -14px rgba(16,23,33,.18);
+  --scope:#0a0e12;
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0b0e12; --card:#141a20; --card-2:#0f151a; --sunken:#0c1116;
+  --ink:#e8edf1; --ink-2:#9aa7b2; --ink-3:#657079;
+  --line:#222b34; --line-2:#1a222b;
+  --accent:#3cc7d0; --accent-2:#5ad6de; --accent-soft:#0f2e30;
+  --amber:#e2a24c; --amber-soft:#2a2013;
+  --red:#e46a5c; --red-soft:#2c1a17;
+  --green:#43b878; --green-soft:#12271c;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 14px 34px -16px rgba(0,0,0,.6);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#0b0e12; --card:#141a20; --card-2:#0f151a; --sunken:#0c1116;
+    --ink:#e8edf1; --ink-2:#9aa7b2; --ink-3:#657079;
+    --line:#222b34; --line-2:#1a222b;
+    --accent:#3cc7d0; --accent-2:#5ad6de; --accent-soft:#0f2e30;
+    --amber:#e2a24c; --amber-soft:#2a2013;
+    --red:#e46a5c; --red-soft:#2c1a17;
+    --green:#43b878; --green-soft:#12271c;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 14px 34px -16px rgba(0,0,0,.6);
+  }
 }
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
-html,body{height:100%}
 body{
   margin:0;background:var(--bg);color:var(--ink);
   font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden;
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
 }
+canvas{max-width:100%}
+h1,h2,h3{margin:0;font-weight:600;line-height:1.2}
 .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
-button{font-family:inherit;color:inherit}
-:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:3px}
-::selection{background:var(--accent);color:#fff}
-h1,h2,h3,h4{margin:0;font-weight:600;line-height:1.2}
 a{color:var(--accent)}
+button{font-family:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 input[type=range]{accent-color:var(--accent)}
 
-/* ================= TOP BAR ================= */
-.topbar{
-  height:52px;display:flex;align-items:center;gap:.75rem;padding:0 .9rem;
-  border-bottom:1px solid var(--line);background:var(--panel-2);position:relative;z-index:20;
+.top{
+  display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;
+  max-width:1180px;margin:0 auto;padding:1rem clamp(1rem,4vw,2rem) .4rem;
 }
-.topbar .logo{display:flex;align-items:center;gap:.5rem;font-weight:600;font-size:.92rem;white-space:nowrap}
-.topbar .logo svg{flex:none}
-.topbar .sep{width:1px;height:24px;background:var(--line)}
-.topbar .grow{flex:1}
-.topbar select,.topbar button.tb{
-  font-family:"IBM Plex Mono",monospace;font-size:.74rem;
-  background:var(--panel);border:1px solid var(--line);border-radius:7px;color:var(--ink-2);
-  padding:.4rem .55rem;cursor:pointer;
-}
-.topbar button.tb:hover,.topbar select:hover{color:var(--ink);border-color:var(--ink-3)}
-.topbar button.tb.on{background:var(--accent);border-color:var(--accent);color:#04211f}
-.tb-group{display:flex;gap:.3rem;align-items:center}
-.menu-wrap{position:relative}
-.menu{position:absolute;right:0;top:calc(100% + 6px);background:var(--panel);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow);padding:.35rem;min-width:190px;z-index:40}
-.menu button{display:block;width:100%;text-align:left;background:none;border:none;padding:.5rem .55rem;border-radius:6px;font-size:.8rem;color:var(--ink-2);cursor:pointer}
-.menu button:hover{background:var(--panel-2);color:var(--ink)}
-.menu .mlabel{font-family:"IBM Plex Mono",monospace;font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:.4rem .55rem .2rem}
+.top h1{font-size:1.15rem;display:flex;align-items:center;gap:.5rem}
+.top h1 svg{flex:none}
+.top .sub{color:var(--ink-3);font-size:.82rem;flex:1;min-width:180px}
+.top .lnk{font-family:"IBM Plex Mono",monospace;font-size:.74rem;text-decoration:none;color:var(--ink-2);border:1px solid var(--line);border-radius:7px;padding:.4rem .55rem;white-space:nowrap}
+.top .lnk:hover{color:var(--ink);border-color:var(--ink-3)}
 
-/* ================= WORKSPACE ================= */
-.workspace{
-  display:grid;grid-template-columns:344px minmax(0,1fr) 316px;gap:1px;background:var(--line);
-  height:calc(100vh - 52px);
+.wrap{max-width:1180px;margin:0 auto;padding:0 clamp(1rem,4vw,2rem) 3rem;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:1.4rem;align-items:start}
+.wrap > div{min-width:0}
+@media (max-width:900px){
+  html,body{overflow-x:clip}
+  .wrap{grid-template-columns:minmax(0,1fr);padding:0 .7rem 2.5rem;gap:1rem}
+  .top{padding:.8rem .7rem .3rem}
+  .top h1{font-size:1.05rem}
+  .top .sub{flex-basis:100%;order:5;min-width:0;font-size:.78rem}
+  .card-h{flex-wrap:wrap;gap:.4rem}
+  .card-h .viztools{width:100%}
+  .chips button{font-size:.74rem}
+  .mini{grid-template-columns:1fr}
+  .card-b{padding:.8rem}
+  .foot{padding:1rem .7rem 2.5rem}
 }
-.col{background:var(--bg);overflow-y:auto;overflow-x:hidden}
-.col::-webkit-scrollbar{width:10px;height:10px}
-.col::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
-.col.rail{background:var(--rail)}
 
-/* ================= CONTROL RAIL ================= */
-.group{border-bottom:1px solid var(--line-2)}
-.group > summary{
-  list-style:none;cursor:pointer;padding:.7rem .9rem;display:flex;align-items:center;justify-content:space-between;
-  font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);
-  position:sticky;top:0;background:var(--rail);z-index:2;
-}
-.group > summary::-webkit-details-marker{display:none}
-.group > summary::after{content:"–";color:var(--ink-3);font-size:.9rem}
-.group:not([open]) > summary::after{content:"+"}
-.group[open] > summary{color:var(--accent)}
-.group .gbody{padding:.3rem .9rem .95rem}
-.field{margin:.75rem 0}
-.field:first-child{margin-top:.4rem}
-.field .flab{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;margin-bottom:.32rem}
-.field .flab .name{font-size:.78rem;color:var(--ink-2)}
-.field .flab .name .i{display:inline-block;width:13px;height:13px;line-height:13px;text-align:center;border:1px solid var(--ink-3);border-radius:50%;font-size:.58rem;color:var(--ink-3);cursor:help;margin-left:.3rem}
-.field .flab .v{font-family:"IBM Plex Mono",monospace;font-size:.76rem;color:var(--accent);font-weight:500;white-space:nowrap}
-.field input[type=range]{width:100%;height:1.15rem}
-.field .seg{display:flex;flex-wrap:wrap;gap:.25rem}
-.field .seg button{
-  flex:1 1 auto;font-family:"IBM Plex Mono",monospace;font-size:.72rem;
-  padding:.32rem .3rem;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink-2);cursor:pointer;
-}
-.field .seg button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#04211f;font-weight:600}
-.field select,.field input[type=number]{
-  width:100%;font-family:"IBM Plex Mono",monospace;font-size:.78rem;padding:.4rem .5rem;
-  border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);
-}
-.field .row2{display:grid;grid-template-columns:1fr 1fr;gap:.4rem}
-.field .toggle{display:flex;align-items:center;gap:.5rem;cursor:pointer;font-size:.78rem;color:var(--ink-2)}
-.field .toggle input{width:0;height:0;opacity:0;position:absolute}
-.field .toggle .sw{width:34px;height:19px;border-radius:10px;background:var(--line);position:relative;transition:background .15s;flex:none}
-.field .toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:var(--ink-3);transition:transform .15s,background .15s}
-.field .toggle input:checked + .sw{background:var(--accent-soft)}
-.field .toggle input:checked + .sw::after{transform:translateX(15px);background:var(--accent)}
-.subnote{font-size:.7rem;color:var(--ink-3);margin-top:.3rem;line-height:1.4}
-.rgbdot{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:.35rem;vertical-align:middle}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.card-h{padding:.7rem .95rem;border-bottom:1px solid var(--line);background:var(--card-2);font-weight:600;font-size:.92rem;display:flex;align-items:center;justify-content:space-between;gap:.6rem}
+.card-h .t{display:flex;align-items:center;gap:.45rem}
+.card-h .t::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--accent)}
+.card-b{padding:.95rem}
 
-/* ================= STAGE ================= */
-.stage{display:flex;flex-direction:column;min-width:0}
-.stage-scroll{overflow-y:auto;padding:.9rem;display:flex;flex-direction:column;gap:.9rem}
-.viz{
-  background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden;box-shadow:var(--shadow);
-}
-.viz-head{
-  display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;
-  padding:.55rem .8rem;border-bottom:1px solid var(--line);background:var(--panel-2);
-}
-.viz-head .vt{font-size:.82rem;font-weight:600;display:flex;align-items:center;gap:.45rem}
-.viz-head .vt::before{content:"";width:6px;height:6px;border-radius:2px;background:var(--accent)}
-.viz-head .vtools{display:flex;gap:.3rem;align-items:center}
-.viz-head .vtools button{
-  font-family:"IBM Plex Mono",monospace;font-size:.68rem;padding:.28rem .45rem;
-  border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink-2);cursor:pointer;
-}
-.viz-head .vtools button:hover{color:var(--ink)}
-.viz-head .vtools button.on{background:var(--accent);border-color:var(--accent);color:#04211f}
-.viz-body{padding:.7rem}
-.screen{background:radial-gradient(120% 140% at 50% 0%, #0c1218, #080c10);border-radius:8px;padding:8px;border:1px solid rgba(120,150,160,.08)}
-:root[data-theme="light"] .screen{background:radial-gradient(120% 140% at 50% 0%, #0c1218, #080c10)}
-canvas{display:block;width:100%}
-.vcap{font-size:.72rem;color:var(--ink-3);padding:.5rem .1rem 0;line-height:1.45}
-.tabs{display:flex;gap:.25rem;padding:.5rem .8rem 0;border-bottom:1px solid var(--line);background:var(--panel-2);flex-wrap:wrap}
-.tabs button{
-  font-family:"IBM Plex Mono",monospace;font-size:.72rem;padding:.4rem .6rem;border:1px solid transparent;border-bottom:none;
-  border-radius:6px 6px 0 0;background:none;color:var(--ink-3);cursor:pointer;
-}
-.tabs button.on{background:var(--panel);border-color:var(--line);color:var(--ink)}
-.legend{display:flex;gap:1rem;flex-wrap:wrap;font-size:.7rem;color:var(--ink-2);padding:.45rem .1rem 0}
-.legend span{display:inline-flex;align-items:center;gap:.35rem}
-.legend i{width:12px;height:3px;border-radius:2px}
-.legend i.sq{width:10px;height:10px;border-radius:2px}
+.stagewrap{display:flex;flex-direction:column;gap:1.4rem}
+.screen{background:var(--scope);border-radius:10px;padding:8px;border:1px solid rgba(120,150,160,.1)}
+canvas{display:block;width:100%;border-radius:4px}
+.cap{font-size:.78rem;color:var(--ink-3);margin-top:.55rem;line-height:1.45}
 
-/* ================= METRICS RAIL ================= */
-.mrail{padding:.9rem;display:flex;flex-direction:column;gap:.9rem}
-.feas{border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.feas .fh{padding:.55rem .7rem;font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--line);background:var(--panel-2)}
-.feas .fb{padding:.65rem .7rem;display:flex;flex-direction:column;gap:.45rem}
-.frow{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;font-size:.76rem}
-.frow .k{color:var(--ink-3)}
-.frow .val{font-family:"IBM Plex Mono",monospace;color:var(--ink)}
-.pill{font-family:"IBM Plex Mono",monospace;font-size:.66rem;padding:.16rem .42rem;border-radius:5px;font-weight:600;white-space:nowrap}
-.pill.ok{background:var(--green-soft);color:var(--green)}
-.pill.warn{background:var(--amber-soft);color:var(--amber)}
-.pill.bad{background:var(--red-soft);color:var(--red)}
-.tiles{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
-.tile{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:.55rem .6rem}
-.tile .tl{font-family:"IBM Plex Mono",monospace;font-size:.6rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);line-height:1.3;min-height:1.9em}
-.tile .tv{font-family:"IBM Plex Mono",monospace;font-size:1.15rem;font-weight:600;margin-top:.15rem}
-.tile .tv .u{font-size:.66rem;color:var(--ink-3);margin-left:.15rem;font-weight:400}
-.tile .td{font-size:.66rem;margin-top:.15rem;color:var(--ink-3)}
-.tile.k .tv{color:var(--accent)}
-.tile .tv.ok{color:var(--green)} .tile .tv.warn{color:var(--amber)} .tile .tv.bad{color:var(--red)}
-.recs{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}
-.recs .rh{padding:.55rem .7rem;font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--line);background:var(--panel-2)}
-.recs ul{margin:0;padding:.55rem .7rem .55rem 1.5rem;font-size:.76rem;color:var(--ink-2);display:flex;flex-direction:column;gap:.4rem}
-.recs li{line-height:1.45}
-.recs li b{color:var(--ink)}
-.cmp-a{border:1px dashed var(--violet);border-radius:10px;padding:.6rem .7rem;font-size:.74rem;color:var(--ink-2)}
-.cmp-a .ct{font-family:"IBM Plex Mono",monospace;font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:var(--violet);margin-bottom:.4rem}
-.cmp-a .drow{display:flex;justify-content:space-between;gap:.5rem;font-family:"IBM Plex Mono",monospace;font-size:.72rem}
-.cmp-a .drow .d.up{color:var(--red)} .cmp-a .drow .d.down{color:var(--green)}
+.verdict{border-radius:12px;padding:.9rem 1.05rem;display:flex;gap:.8rem;align-items:flex-start;border:1px solid var(--line)}
+.verdict .icn{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:.95rem}
+.verdict h3{font-size:1rem;margin-bottom:.15rem}
+.verdict p{margin:0;font-size:.86rem;color:var(--ink-2)}
+.verdict.ok{background:var(--green-soft)} .verdict.ok .icn{background:var(--green);color:#fff} .verdict.ok h3{color:var(--green)}
+.verdict.mild{background:var(--amber-soft)} .verdict.mild .icn{background:var(--amber);color:#fff} .verdict.mild h3{color:var(--amber)}
+.verdict.bad{background:var(--red-soft)} .verdict.bad .icn{background:var(--red);color:#fff} .verdict.bad h3{color:var(--red)}
 
-/* ================= HELP OVERLAY ================= */
-.overlay{position:fixed;inset:0;background:rgba(4,7,10,.72);backdrop-filter:blur(3px);z-index:60;display:flex;align-items:center;justify-content:center;padding:1.5rem}
-.overlay .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:780px;max-height:85vh;overflow-y:auto;padding:1.5rem 1.7rem;box-shadow:var(--shadow)}
-.overlay h2{font-size:1.1rem;margin-bottom:.6rem}
-.overlay h3{font-size:.86rem;margin:1.1rem 0 .3rem;color:var(--accent)}
-.overlay p,.overlay li{font-size:.82rem;color:var(--ink-2);line-height:1.55}
-.overlay ul{padding-left:1.2rem}
-.overlay .close{position:sticky;top:0;float:right;background:var(--panel-2);border:1px solid var(--line);border-radius:7px;padding:.3rem .5rem;cursor:pointer;font-family:"IBM Plex Mono",monospace;font-size:.72rem}
-.overlay .disc{background:var(--amber-soft);border-left:3px solid var(--amber);border-radius:0 8px 8px 0;padding:.7rem .9rem;margin:1rem 0;font-size:.8rem;color:var(--ink-2)}
+.viztools{display:flex;gap:.35rem;flex-wrap:wrap}
+.cap{overflow-wrap:anywhere}
+.viztools button{font-family:"IBM Plex Mono",monospace;font-size:.68rem;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink-2);padding:.3rem .5rem}
+.viztools button.on{background:var(--accent);border-color:var(--accent);color:#04211f}
 
-.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);font-family:"IBM Plex Mono",monospace;font-size:.74rem;padding:.5rem .8rem;border-radius:8px;opacity:0;transition:opacity .2s;z-index:70;pointer-events:none}
+/* controls */
+.grp{margin-bottom:1.35rem}
+.grp:last-child{margin-bottom:0}
+.grp > h3{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:.7rem}
+.f{margin:.9rem 0}
+.f:first-of-type{margin-top:0}
+.f .lab{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;margin-bottom:.4rem}
+.f .lab .n{font-size:.85rem;color:var(--ink-2)}
+.f .lab .v{font-family:"IBM Plex Mono",monospace;font-size:.82rem;color:var(--accent);font-weight:500}
+.chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(50px,1fr));gap:.3rem}
+.chips button{font-family:"IBM Plex Mono",monospace;font-size:.78rem;border:1px solid var(--line);border-radius:7px;background:var(--card-2);color:var(--ink-2);padding:.4rem .2rem}
+.chips button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#04211f;font-weight:600}
+.f input[type=range]{width:100%;height:1.3rem}
+.scanhint{font-size:.74rem;color:var(--ink-3);margin-top:.3rem}
+.toggle{display:flex;align-items:center;gap:.6rem;font-size:.85rem;color:var(--ink-2);cursor:pointer;margin:.7rem 0}
+.toggle input{position:absolute;opacity:0;width:0;height:0}
+.toggle .sw{flex:none;width:36px;height:20px;border-radius:10px;background:var(--line);position:relative;transition:background .15s}
+.toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ink-3);transition:.15s}
+.toggle input:checked + .sw{background:var(--accent-soft)}
+.toggle input:checked + .sw::after{transform:translateX(16px);background:var(--accent)}
 
-.tipbox{position:fixed;z-index:80;max-width:240px;background:var(--ink);color:var(--bg);font-size:.72rem;line-height:1.4;padding:.5rem .6rem;border-radius:7px;opacity:0;transition:opacity .12s;pointer-events:none}
+.pics{display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem}
+.pics button{padding:0;border:2px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card-2);aspect-ratio:4/3}
+.pics button img{width:100%;height:100%;object-fit:cover;display:block}
+.pics button[aria-pressed=true]{border-color:var(--accent)}
+.pics button.pat{display:grid;place-items:center;font-family:"IBM Plex Mono",monospace;font-size:.66rem;color:var(--ink-3);line-height:1.2;text-align:center}
 
-/* ================= RESPONSIVE ================= */
-.railtoggle{display:none}
-@media (max-width:1240px){
-  .workspace{grid-template-columns:320px minmax(0,1fr)}
-  .col.rail.metrics{grid-column:1 / -1;order:3;height:auto;max-height:none}
-  .mrail{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));align-items:start}
-}
-@media (max-width:860px){
-  body{overflow:auto}
-  .workspace{display:block;height:auto}
-  .col{height:auto;overflow:visible}
-  .col.controls{position:fixed;inset:52px auto 0 0;width:320px;z-index:30;transform:translateX(-100%);transition:transform .2s;box-shadow:var(--shadow);overflow-y:auto;max-height:calc(100vh - 52px)}
-  .col.controls.open{transform:none}
-  .railtoggle{display:inline-flex}
-  .mrail{grid-template-columns:1fr}
-}
+.tips{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.55rem}
+.tips li{font-size:.85rem;color:var(--ink-2);line-height:1.45;padding-left:1.15rem;position:relative}
+.tips li::before{content:"→";position:absolute;left:0;color:var(--accent)}
+.tips li b{color:var(--ink)}
+
+.btnrow{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.3rem}
+.btn{font-family:"IBM Plex Mono",monospace;font-size:.76rem;border:1px solid var(--line);border-radius:8px;background:var(--card-2);color:var(--ink-2);padding:.5rem .7rem;display:inline-flex;align-items:center;gap:.4rem}
+.btn:hover{color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#04211f;font-weight:600}
+
+.foot{max-width:1180px;margin:0 auto;padding:1rem clamp(1rem,4vw,2rem) 3rem;color:var(--ink-3);font-size:.78rem;line-height:1.5}
+.foot a{color:var(--ink-2)}
+
+.mini{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.mini .m{background:var(--sunken);border-radius:9px;padding:.55rem .65rem}
+.mini .m .k{font-family:"IBM Plex Mono",monospace;font-size:.62rem;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
+.mini .m .val{font-family:"IBM Plex Mono",monospace;font-size:1.05rem;font-weight:600;margin-top:.1rem}
+.mini .m .val.ok{color:var(--green)} .mini .m .val.mild{color:var(--amber)} .mini .m .val.bad{color:var(--red)}
+
 @media (prefers-reduced-motion:reduce){*{transition-duration:.001ms!important}}
 </style>
 </head>
 <body>
 
-<div class="toast" id="toast" role="status"></div>
-<div class="tipbox" id="tipbox"></div>
-
-<header class="topbar">
-  <span class="logo">
+<header class="top">
+  <h1>
     <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="1.2" y="1.2" width="17.6" height="17.6" rx="3.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 13 L6 13 L6 6 L9 6 L9 13 L12 13 L12 8.5 L15 8.5 L15 13 L17 13" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/></svg>
-    PWM &amp; Camera Simulator
-  </span>
-  <button class="tb railtoggle" id="railToggle">Controls</button>
-  <span class="sep"></span>
-  <label class="mono" style="font-size:.68rem;color:var(--ink-3)">PRESET</label>
-  <select id="presetSel" title="Load a scenario"></select>
-  <span class="sep"></span>
-  <div class="tb-group">
-    <button class="tb" id="playBtn" title="Animate the camera/display beat (free-run phase)">▶ Run</button>
-    <button class="tb" id="pinBtn" title="Pin the current configuration as reference A for comparison">Pin A</button>
-  </div>
-  <span class="grow"></span>
-  <div class="menu-wrap">
-    <button class="tb" id="exportBtn">Export ▾</button>
-    <div class="menu" id="exportMenu" hidden>
-      <div class="mlabel">Download</div>
-      <button data-x="png">Simulated frame (PNG)</button>
-      <button data-x="csv">Optical waveform (CSV)</button>
-      <button data-x="json">Configuration + metrics (JSON)</button>
-      <div class="mlabel">Share</div>
-      <button data-x="link">Copy link to this configuration</button>
-    </div>
-  </div>
-  <button class="tb" id="helpBtn" title="How the model works">?</button>
-  <button class="tb" id="themeBtn" title="Toggle theme">◐</button>
+    PWM &amp; Camera Check
+  </h1>
+  <span class="sub">Will this LED display look clean on this camera &mdash; or show scanlines and banding?</span>
+  <a class="lnk" href="advanced.html">Advanced tool &nearr;</a>
+  <a class="lnk" href="../../index.html">White paper &nearr;</a>
+  <button class="lnk" id="themeBtn" aria-label="Toggle theme">◐ Theme</button>
 </header>
 
-<div class="workspace">
-  <aside class="col rail controls" id="controls" aria-label="Simulation controls"></aside>
+<div class="wrap">
 
-  <section class="col stage">
-    <div class="stage-scroll">
-
-      <div class="viz" id="vizFrame">
-        <div class="viz-head">
-          <span class="vt">Simulated camera capture</span>
-          <span class="vtools">
-            <button data-fmode="rolling" class="on">Rolling</button>
-            <button data-fmode="global">Global</button>
-            <button id="chOverlay" title="Show per-channel R/G/B">RGB split</button>
-          </span>
-        </div>
-        <div class="viz-body">
-          <div class="screen"><canvas id="frameCanvas" height="300"></canvas></div>
-          <div class="vcap" id="frameCap"></div>
-        </div>
+  <div class="stagewrap">
+    <div class="card">
+      <div class="card-h">
+        <span class="t">Simulated recording</span>
+        <span class="viztools">
+          <button id="btnCompare" class="on">Split: eye | camera</button>
+          <button id="btnMove">▶ See it move</button>
+        </span>
       </div>
+      <div class="card-b">
+        <div class="screen"><canvas id="cam" height="380"></canvas></div>
+        <p class="cap" id="camCap"></p>
+      </div>
+    </div>
 
-      <div class="viz" id="vizWave">
-        <div class="viz-head">
-          <span class="vt">Optical waveform &mdash; light vs time</span>
-          <span class="vtools">
-            <button id="waveZoomOut">&minus;</button>
-            <button id="waveSpan" class="mono">1 frame</button>
-            <button id="waveZoomIn">+</button>
-          </span>
+    <div class="verdict" id="verdict">
+      <span class="icn" id="vIcn">?</span>
+      <div><h3 id="vTitle">Adjust the settings</h3><p id="vText"></p></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="t">Reading</span>
+        <span class="viztools">
+          <button class="btn" id="btnPng" style="font-size:.68rem;padding:.3rem .45rem">Save frame</button>
+          <button class="btn" id="btnLink" style="font-size:.68rem;padding:.3rem .45rem">Copy link</button>
+        </span>
+      </div>
+      <div class="card-b">
+        <div class="mini" style="margin-bottom:.9rem">
+          <div class="m"><div class="k">Banding / scanlines</div><div class="val" id="mBand">&ndash;</div></div>
+          <div class="m"><div class="k">Frame-to-frame flicker</div><div class="val" id="mFlick">&ndash;</div></div>
         </div>
-        <div class="viz-body">
-          <div class="screen"><canvas id="waveCanvas" height="220"></canvas></div>
-          <div class="legend">
-            <span><i style="background:var(--accent)"></i> emitted light (one row group)</span>
-            <span><i class="sq" style="background:var(--amber-soft);border:1px solid var(--amber)"></i> camera exposure window</span>
-            <span><i class="sq" style="background:var(--grid-2)"></i> row-active windows</span>
+        <ul class="tips" id="tips"></ul>
+      </div>
+    </div>
+
+    <div class="card" id="waveCard">
+      <div class="card-h"><span class="t">What the LED is actually doing</span>
+        <span class="viztools"><button id="btnWave">Show the pulses</button></span>
+      </div>
+      <div class="card-b" hidden id="waveBody">
+        <div class="screen"><canvas id="wave" height="150"></canvas></div>
+        <p class="cap">Each spike is one burst of light. A person blends them into steady light; a camera shutter (amber) records only the bursts that land inside its short window.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-h"><span class="t">Settings</span><button class="btn" id="btnReset" style="font-size:.68rem;padding:.3rem .45rem">Reset</button></div>
+      <div class="card-b">
+
+        <div class="grp">
+          <h3>The LED display</h3>
+          <div class="f">
+            <div class="lab"><span class="n">Output frame rate</span><span class="v" id="vFrame">50 Hz</span></div>
+            <div class="chips" id="cFrame"></div>
+          </div>
+          <div class="f">
+            <div class="lab"><span class="n">Grayscale / visual refresh</span><span class="v" id="vRef">3840 Hz</span></div>
+            <div class="chips" id="cRef"></div>
+          </div>
+          <div class="f">
+            <div class="lab"><span class="n">Scan ratio</span><span class="v" id="vScan">1 / 13</span></div>
+            <input type="range" id="rScan" min="0" max="0" value="0">
+            <div class="scanhint" id="scanHint"></div>
           </div>
         </div>
-      </div>
 
-      <div class="viz" id="vizTabbed">
-        <div class="tabs" id="analysisTabs">
-          <button data-tab="spectrum" class="on">Flicker spectrum</button>
-          <button data-tab="phase">Phase response</button>
-          <button data-tab="shutter">Shutter sweep</button>
-          <button data-tab="film">Filmstrip</button>
+        <div class="grp">
+          <h3>Content on screen</h3>
+          <div class="pics" id="pics"></div>
+          <div class="f" style="margin-top:.8rem">
+            <div class="lab"><span class="n">Display brightness</span><span class="v" id="vBright">85%</span></div>
+            <input type="range" id="rBright" min="2" max="100" value="85">
+          </div>
         </div>
-        <div class="viz-body">
-          <div class="screen"><canvas id="analysisCanvas" height="260"></canvas></div>
-          <div class="vcap" id="analysisCap"></div>
+
+        <div class="grp">
+          <h3>The camera</h3>
+          <div class="f">
+            <div class="lab"><span class="n">Camera frame rate</span><span class="v" id="vCam">50 fps</span></div>
+            <div class="chips" id="cCam"></div>
+          </div>
+          <div class="f">
+            <div class="lab"><span class="n">Shutter speed</span><span class="v" id="vShut">1/1000 s</span></div>
+            <input type="range" id="rShut" min="0" max="0" value="0">
+          </div>
+          <label class="toggle"><input type="checkbox" id="tRoll" checked><span class="sw"></span><span>Rolling shutter (most cameras)</span></label>
+          <label class="toggle"><input type="checkbox" id="tSync"><span class="sw"></span><span>Camera synced to display (genlock)</span></label>
+          <div class="btnrow">
+            <button class="btn" id="btnMatch">Match camera to display</button>
+          </div>
         </div>
-      </div>
 
-    </div>
-  </section>
-
-  <aside class="col rail metrics" aria-label="Results">
-    <div class="mrail">
-      <div class="feas">
-        <div class="fh">Driver feasibility &nbsp;·&nbsp; rough guide</div>
-        <div class="fb" id="feasBody"></div>
-      </div>
-      <div>
-        <div class="fh" style="border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:var(--panel-2);padding:.55rem .7rem;font-family:'IBM Plex Mono',monospace;font-size:.66rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">Results</div>
-        <div class="tiles" id="tiles" style="border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;padding:.55rem"></div>
-      </div>
-      <div class="cmp-a" id="cmpBox" hidden>
-        <div class="ct">vs pinned A &mdash; <span id="cmpName"></span> <button id="clearPin" style="float:right;background:none;border:none;color:var(--ink-3);cursor:pointer;font-family:inherit;font-size:.66rem">clear</button></div>
-        <div id="cmpRows"></div>
-      </div>
-      <div class="recs">
-        <div class="rh">Reading &amp; recommendations</div>
-        <ul id="recs"></ul>
       </div>
     </div>
-  </aside>
-</div>
-
-<div class="overlay" id="helpOverlay" hidden>
-  <div class="box">
-    <button class="close" id="helpClose">esc</button>
-    <h2>How this simulator works</h2>
-    <div class="disc"><b>Simplified engineering model.</b> This tool models the <i>principle</i> of PWM + scan + camera interaction. It uses idealised rectangular pulses, one representative row group, a linear transfer unless gamma is set, and a schematic S-PWM / BCM distribution. Real driver ICs use proprietary pulse scheduling, ghost-cancellation, low-grey algorithms and calibration that this cannot reproduce. Use it to build intuition and to narrow down camera settings &mdash; confirm on the real system with a photodiode and oscilloscope.</div>
-    <h3>The layers it simulates</h3>
-    <ul>
-      <li><b>Content &amp; frame rate</b> &mdash; unique images per second and the output frame rate they are shown at (with pulldown cadence).</li>
-      <li><b>PWM scheme</b> &mdash; conventional single-pulse PWM, S-PWM (sub-periods per frame), scrambled S-PWM, or binary-code modulation (BCM), optionally with a PWM&#8594;PAM low-grey hybrid.</li>
-      <li><b>Grayscale refresh</b> &mdash; the visual repeat rate; for S-PWM this sets the number of sub-periods per frame.</li>
-      <li><b>Driver limits</b> &mdash; bit depth, GCLK frequency and minimum pulse width, which together decide whether the requested refresh is even achievable and where low greys start to break.</li>
-      <li><b>Scan ratio</b> &mdash; how many row groups share the driver outputs; sets each LED's maximum wall-clock ON fraction and the row-scan frequency.</li>
-      <li><b>Dimming method</b> &mdash; global brightness split between PWM duty and current amplitude.</li>
-      <li><b>Camera</b> &mdash; frame rate, shutter (time or cine angle), rolling vs global shutter, sensor readout time, genlock and exposure phase.</li>
-    </ul>
-    <h3>The outputs</h3>
-    <ul>
-      <li><b>Simulated camera capture</b> &mdash; a synthetic frame showing the bands, brightness steps and colour shifts a sensor would record with the current settings.</li>
-      <li><b>Optical waveform</b> &mdash; emitted light vs time with the exposure window overlaid.</li>
-      <li><b>Flicker spectrum</b> &mdash; the frequency content of the light, with the frame, scan and PWM components marked, and the camera shutter's frequency response (a sinc) overlaid: where a display component lands on a null it is suppressed; between nulls it passes through as flicker.</li>
-      <li><b>Phase response</b> &mdash; captured brightness as the exposure start phase moves through one beat period; the peak-to-peak swing is the frame-to-frame flicker amplitude on camera.</li>
-      <li><b>Shutter sweep</b> &mdash; that swing measured across the whole shutter range, so the "clean windows" are visible.</li>
-      <li><b>Filmstrip</b> &mdash; consecutive captured frames, so beat and rolling-band drift are visible over time.</li>
-    </ul>
-    <h3>Metrics</h3>
-    <ul>
-      <li><b>Percent flicker</b> and <b>flicker index</b> of the optical waveform, with the IEEE&nbsp;1789-style direct-vision risk classification (almost always "no effect" at these frequencies &mdash; the point is the camera metrics below).</li>
-      <li><b>On-camera flicker amplitude</b> &mdash; peak-to-peak captured-brightness swing vs phase, as % of mean.</li>
-      <li><b>Band contrast</b> &mdash; Michelson contrast between the brightest and darkest rows of the simulated rolling-shutter frame.</li>
-      <li><b>Capture ratio</b> &mdash; captured light vs a long-exposure reference (100% = faithful).</li>
-    </ul>
-    <p style="margin-top:1rem"><a href="../../index.html">&larr; Back to the white paper</a></p>
   </div>
 </div>
 
+<footer class="foot">
+  Simplified engineering model for building intuition, not a substitute for measurement. Real driver ICs use proprietary pulse scheduling this cannot reproduce. Driver grayscale locked at 14-bit. Confirm critical setups on the real system with a photodiode and oscilloscope, or use the <a href="advanced.html">advanced tool</a>. &nbsp;Demo photographs: Lorem&nbsp;Picsum / Unsplash License.
+</footer>
+
+<script src="img-data.js"></script>
 <script>
-/* ============================================================ ENGINE */
 "use strict";
 (function(){
-var RM = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-var $=function(s,r){return (r||document).querySelector(s)};
-var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
+var $=function(s){return document.querySelector(s)};
+var $$=function(s){return Array.prototype.slice.call(document.querySelectorAll(s))};
 var clamp=function(x,a,b){return x<a?a:x>b?b:x};
 var US=1e6;
+var RM=window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches;
 
-/* ---- default state ---- */
-var S={
-  frameRate:50, contentFps:25, cadence:'auto',
-  scheme:'spwm', refresh:3200, bits:14, gclk:24, scanN:8, oe:8, minPulseNs:120, scramble:true, pam:false, pamFloorNs:600,
-  gamma:2.2, bright:100, dimSplit:75,
-  content:'flat', level:100, rTrim:100, gTrim:100, bTrim:100,
-  camFps:50, shutterMode:'time', shutterUs:5000, shutterAngle:180, genlock:false, phaseLock:false, phase:20,
-  rolling:true, readoutMs:16,
-  analysis:'spectrum', waveSpanFrames:1, chSplit:false
-};
-var PRESETS={
- '50 Hz broadcast — our delivery':{frameRate:50,contentFps:25,cadence:'auto',scheme:'spwm',scramble:true,refresh:3200,bits:14,gclk:24,scanN:8,oe:8,gamma:2.2,bright:100,dimSplit:75,content:'flat',level:100,camFps:50,shutterMode:'time',shutterUs:5000,genlock:false,rolling:true,readoutMs:16},
- '50 Hz — camera at 1/1000 s (risky shutter)':{frameRate:50,contentFps:25,scheme:'spwm',scramble:true,refresh:3200,bits:14,gclk:24,scanN:8,bright:100,dimSplit:75,content:'flat',level:100,camFps:50,shutterMode:'time',shutterUs:1000,rolling:true,readoutMs:16},
- '50 Hz — display run at 10%':{frameRate:50,contentFps:25,scheme:'spwm',scramble:true,refresh:3200,scanN:8,bright:10,dimSplit:100,content:'vgrad',level:100,camFps:50,shutterMode:'time',shutterUs:1000,rolling:true,readoutMs:16},
- '60 Hz broadcast':{frameRate:60,contentFps:30,scheme:'spwm',refresh:3840,scanN:8,bright:100,dimSplit:75,camFps:60,shutterMode:'time',shutterUs:1000,rolling:true,readoutMs:14},
- 'Cinema — 24 fps, 172.8° shutter':{frameRate:50,contentFps:24,cadence:'auto',scheme:'spwm',refresh:3200,scanN:8,bright:80,camFps:24,shutterMode:'angle',shutterAngle:172.8,rolling:true,readoutMs:20},
- 'High-speed 240 fps replay':{frameRate:50,scheme:'spwm',refresh:3200,scanN:8,bright:100,camFps:240,shutterMode:'time',shutterUs:2000,rolling:true,readoutMs:4},
- 'Conventional PWM, 1/4 scan, 1920 Hz':{frameRate:50,scheme:'conv',refresh:1920,scanN:4,bright:60,dimSplit:100,camFps:50,shutterMode:'time',shutterUs:1000,rolling:true,readoutMs:16},
- 'Over-budget driver — 16-bit, 1/16 scan, low GCLK':{frameRate:50,scheme:'spwm',scramble:true,refresh:3840,bits:16,gclk:6,scanN:16,bright:100,camFps:50,shutterMode:'time',shutterUs:1000,rolling:true,readoutMs:12},
- 'Dark colour — unequal RGB':{frameRate:50,scheme:'spwm',refresh:3200,scanN:8,bright:100,content:'flat',level:100,rTrim:14,gTrim:28,bTrim:55,camFps:50,shutterMode:'time',shutterUs:1000,rolling:true,readoutMs:16},
- 'Genlocked camera':{frameRate:50,contentFps:50,scheme:'spwm',refresh:3200,scanN:8,bright:100,camFps:50,genlock:true,phaseLock:true,shutterMode:'time',shutterUs:2000,rolling:true,readoutMs:16},
- 'Static drive (1/1), 6000 Hz':{frameRate:50,scheme:'spwm',refresh:6000,scanN:1,bright:100,camFps:50,shutterMode:'time',shutterUs:1000,rolling:true,readoutMs:16}
+var FRAMES=[24,25,30,50,60];
+var CAMS=[24,25,30,50,60];
+var REFS=[3200,3840,4800,6400,7680,9600,11520,15360];
+var SCANS=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,18,20,22,24,26,28,30,32,36,40,44,48];
+var SHUTS=[50,60,100,125,160,200,250,320,400,500,640,800,1000,1250,1600,2000];
+
+var DEF={frame:50,contentFps:25,ref:3840,scanIx:12,bright:85,content:'fjord',cam:50,shutIx:12,roll:true,sync:false};
+var S=Object.assign({},DEF);
+
+/* ---------- theme ---------- */
+try{ if(localStorage.getItem('pcc-theme')==='light')document.documentElement.setAttribute('data-theme','light');
+     if(localStorage.getItem('pcc-theme')==='dark')document.documentElement.setAttribute('data-theme','dark'); }catch(e){}
+$('#themeBtn').onclick=function(){
+  var c=document.documentElement.getAttribute('data-theme');
+  var n=c==='light'?'dark':c==='dark'?null:'light';
+  if(n)document.documentElement.setAttribute('data-theme',n); else document.documentElement.removeAttribute('data-theme');
+  try{localStorage.setItem('pcc-theme',n||'auto')}catch(e){}
+  recompute();
 };
 
-/* =================================================== derived timing */
-function shutterTime(){
-  if(S.shutterMode==='angle') return clamp(S.shutterAngle/360,0.0001,1)*(US/S.camFps);
-  return S.shutterUs;
+/* ---------- images ---------- */
+var IMGS={};
+var PATTERNS={
+  flat:{name:'Flat\nwhite'}, grey18:{name:'18%\ngrey'}, ramp:{name:'Grey\nramp'}, bars:{name:'Colour\nbars'}
+};
+function srgbLin(c){ return c<=0.04045? c/12.92 : Math.pow((c+0.055)/1.055,2.4); }
+function linSrgb(c){ c=clamp(c,0,1); return c<=0.0031308? 12.92*c : 1.055*Math.pow(c,1/2.4)-0.055; }
+function loadImages(cb){
+  var keys=Object.keys(window.DEMO_IMAGES||{}), n=keys.length, done=0;
+  if(!n){cb();return;}
+  keys.forEach(function(k){
+    var im=new Image();
+    im.onload=function(){
+      var w=520, h=Math.max(1,Math.round(520*im.naturalHeight/im.naturalWidth));
+      var c=document.createElement('canvas'); c.width=w; c.height=h;
+      var g2=c.getContext('2d'); g2.drawImage(im,0,0,w,h);
+      try{ IMGS[k]={d:g2.getImageData(0,0,w,h).data,w:w,h:h,thumb:window.DEMO_IMAGES[k]}; }catch(e){}
+      if(++done===n)cb();
+    };
+    im.onerror=function(){ if(++done===n)cb(); };
+    im.src=window.DEMO_IMAGES[k];
+  });
 }
+
+/* ---------- content sampling (returns linear light target, brightness applied) ---------- */
+function contentAt(col,rf){
+  var B=clamp(S.bright/100,0,1);
+  if(IMGS[S.content]){
+    var im=IMGS[S.content], d=im.d;
+    var fx=clamp(col*im.w-0.5,0,im.w-1.001), fy=clamp(rf*im.h-0.5,0,im.h-1.001);
+    var x0=fx|0, y0=fy|0, tx=fx-x0, ty=fy-y0;
+    var a=(y0*im.w+x0)*4, b2=a+4, cc=a+im.w*4, e=cc+4;
+    var out=[0,0,0];
+    for(var ch=0;ch<3;ch++){
+      var top=d[a+ch]*(1-tx)+d[b2+ch]*tx, bot=d[cc+ch]*(1-tx)+d[e+ch]*tx;
+      out[ch]=B*srgbLin((top*(1-ty)+bot*ty)/255);
+    }
+    return out;
+  }
+  if(S.content==='flat'){ var w=B; return [w,w,w]; }
+  if(S.content==='grey18'){ var g=B*0.18; return [g,g,g]; }
+  if(S.content==='ramp'){ var v=B*srgbLin(clamp(col,0,1)); return [v,v,v]; }
+  if(S.content==='bars'){
+    var t=[[1,1,1],[1,1,0],[0,1,1],[0,1,0],[1,0,1],[1,0,0],[0,0,1]][Math.min(6,Math.floor(col*7))];
+    return [B*t[0],B*t[1],B*t[2]];
+  }
+  return [B,B,B];
+}
+
+/* ---------- timing model ---------- */
 function der(){
   var d={};
-  d.Tf = US/S.frameRate;                 // frame period, us
-  d.Tcam = US/S.camFps;
-  d.texp = clamp(shutterTime(),2,US/2);
-  d.scanN = Math.max(1,S.scanN);
-  d.rolling = !!S.rolling; d.readoutMs = S.readoutMs;
-  // S-PWM sub-period count. "Scramble/distribute" doubles the effective sub-period
-  // count (each nominal sub-period is split and spread), which raises the fundamental.
-  var Kbase = (S.scheme==='conv') ? 1 : Math.max(1, Math.round(S.refresh/S.frameRate));
-  d.Kbase = Kbase;
-  d.K = (S.scheme==='spwm' && S.scramble) ? Kbase*2 : Kbase;
-  d.pwmFund = (S.scheme==='conv') ? S.frameRate : d.K*S.frameRate;
-  d.rowScanFreq = d.pwmFund * d.scanN;
-  d.Tsub = d.Tf/d.K;
-  d.rowWin = d.Tsub/d.scanN;              // time this row group is addressable per sub-period
-  d.oeLoss = clamp(S.oe/100,0,0.6);
-  d.rowActive = d.rowWin*(1-d.oeLoss);
-  d.minPulse = S.minPulseNs/1000;
-  d.pamFloor = S.pamFloorNs/1000;
-  // driver budget: GCLK ticks needed to resolve full grey per line, all lines, per frame
-  d.gclkHz = S.gclk*1e6;
-  d.levels = Math.pow(2,S.bits);
-  d.lsbTime = US/d.gclkHz;
-  // ROUGH throughput model (implementation-dependent). Per frame the driver needs, per S-PWM
-  // sub-period: a grayscale counter of ~2^min(bits,12) ticks + data-shift overhead ~ bits x scanLines x 4.
-  d.clkPerFrame = d.K * (Math.pow(2, Math.min(S.bits,10)) + S.bits * d.scanN * 4);
-  d.gclkNeeded = d.clkPerFrame * S.frameRate;             // Hz
-  d.headroom = d.gclkNeeded>0 ? d.gclkHz/d.gclkNeeded : 99;
-  d.feasible = d.headroom >= 1;
-  d.maxRefresh = d.pwmFund * Math.max(0.05,d.headroom);
-  d.smallestPulseNs = (d.rowActive/Math.max(1,d.levels-1))*1000;
-  d.crushCode = d.smallestPulseNs>0 ? Math.max(0, Math.round(d.minPulse*1000/d.smallestPulseNs)) : 0;
-  // dimming split
-  var B=clamp(S.bright/100,0,1);
-  var sp=clamp(S.dimSplit/100,0,1);
-  d.pwmScale = Math.pow(B, sp);
-  d.curScale = B>0 ? B/d.pwmScale : 0;   // amplitude 0..1
-  // per-channel duty (post gamma + trim), pre-scan
-  function chDuty(trim){
-    var v = clamp(S.level/100,0,1)*clamp(trim/100,0,1);
-    var lin = Math.pow(v, S.gamma);
-    return clamp(d.pwmScale*lin,0,1);
-  }
-  d.dutyR=chDuty(S.rTrim); d.dutyG=chDuty(S.gTrim); d.dutyB=chDuty(S.bTrim);
-  d.dutyW=(d.dutyR+d.dutyG+d.dutyB)/3;
-  d.beatFreq = Math.abs(S.camFps - Math.round(S.camFps/S.frameRate)*S.frameRate);
+  d.Tf=US/S.frame;
+  d.Tcam=US/S.cam;
+  d.texp=US/SHUTS[S.shutIx];
+  d.N=SCANS[S.scanIx];
+  d.K=Math.max(1,Math.round(S.ref/S.frame));   // sub-periods per frame
+  d.Tsub=d.Tf/d.K;
+  d.rowWin=d.Tsub/d.N;
+  d.oe=0.06;
+  d.rowActive=d.rowWin*(1-d.oe);
+  d.rowScanHz=S.ref*d.N;
+  d.readoutUs=S.roll? 16000 : 0;
+  d.beat=Math.abs(S.cam - Math.round(S.cam/S.frame)*S.frame);
+  d.cadence=S.frame/S.contentFps;
   return d;
 }
-
-/* =================================================== emission schedule
-   Returns {edges:[t...], on:[0/1...], amp:[..], totalOn, Tf, cum:[..]} for ONE display row group over ONE frame.
-   Camera integral uses periodicity with Tf.  amp = emission amplitude (current scale / PAM). */
-function schedule(D, duty, group){
-  var Tf=D.Tf, ints=[];
-  var amp = D.curScale;
-  function addWindow(winStart, winLen){
-    if(duty<=0 || winLen<=0) return;
-    var want = duty*winLen;
-    var a = amp;
-    var len = want;
-    if(S.pam && want>0 && want < D.pamFloor){       // PWM->PAM hybrid: hold a floor pulse, drop current
-      len = Math.min(D.pamFloor, winLen);
-      a = amp * (want/len);
-    } else if(want>0 && want < D.minPulse){          // hard min-pulse clamp: quantise
-      len = D.minPulse<=winLen ? D.minPulse : winLen;
-      // energy roughly preserved as a floor step (missing-code behaviour)
-      a = amp;
-    }
-    len=Math.min(len,winLen);
-    ints.push([winStart, winStart+len, a]);
-  }
-  if(S.scheme==='conv'){
-    // one contiguous pulse per frame, inside this group's single active slot
-    var slot = Tf/D.scanN;
-    var ws = group*slot;
-    addWindow(ws, slot*(1-D.oeLoss));
-  } else if(S.scheme==='bcm'){
-    var code=Math.round(duty*(D.levels-1)); if(code<0)code=0;
-    var order=[]; for(var b=0;b<S.bits;b++) order.push(b);
-    if(S.scramble){ order.sort(function(x,y){ return bitrev(x,S.bits)-bitrev(y,S.bits); }); }
-    var slotBcm=Tf/D.scanN, base=group*slotBcm, avail=slotBcm*(1-D.oeLoss), cursor=base, unit=avail/(D.levels-1);
-    for(var oi=0;oi<order.length;oi++){
-      var bb=order[oi], w=Math.pow(2,bb)*unit;
-      if(code & (1<<bb)){ var a2=amp; ints.push([cursor, cursor+Math.max(w, (w>0?Math.min(D.minPulse,avail):0)), a2]); }
-      cursor+=w;
-    }
-  } else {
-    // S-PWM / scrambled: K sub-periods, this group active once per sub-period
-    // scan cycles through all N groups once per (effective) sub-period; a given group's
-    // pulse sits at a fixed offset within its sub-period, so the pulse train for that
-    // group is evenly spaced at Tf / K_effective.
-    for(var k=0;k<D.K;k++){
-      addWindow(k*D.Tsub + (group % D.scanN)*D.rowWin, D.rowActive);
-    }
-  }
-  ints.sort(function(a,b){return a[0]-b[0]});
-  // build cumulative ON (amplitude-weighted) at edges
-  var edges=[0], cum=[0], acc=0;
-  for(var i=0;i<ints.length;i++){
-    var s0=clamp(ints[i][0],0,Tf), e0=clamp(ints[i][1],0,Tf), a3=ints[i][2];
-    if(e0<=s0) continue;
-    edges.push(s0); cum.push(acc);
-    acc+=(e0-s0)*a3;
-    edges.push(e0); cum.push(acc);
-  }
-  edges.push(Tf); cum.push(acc);
-  return {ints:ints, edges:edges, cum:cum, totalOn:acc, Tf:Tf};
-}
-function bitrev(x,n){var r=0;for(var i=0;i<n;i++){r=(r<<1)|((x>>i)&1);}return r;}
-
-/* amplitude-weighted ON integral over [0,x] within one frame */
-function cumUpTo(sch,x){
-  var e=sch.edges, c=sch.cum;
-  if(x<=0) return 0;
-  if(x>=sch.Tf) return sch.totalOn;
-  // find last edge <= x
-  var lo=0,hi=e.length-1;
-  while(lo<hi){var m=(lo+hi+1)>>1; if(e[m]<=x)lo=m; else hi=m-1;}
-  var val=c[lo];
-  // within segment [e[lo], e[lo+1]] the rate is constant = (c[lo+1]-c[lo])/(e[lo+1]-e[lo])
-  if(lo+1<e.length && e[lo+1]>e[lo]){
-    var rate=(c[lo+1]-c[lo])/(e[lo+1]-e[lo]);
-    val += rate*(x-e[lo]);
-  }
-  return val;
-}
-function integ(sch,a,b){
-  if(b<=a) return 0;
-  var Tf=sch.Tf;
-  function up(x){ var f=Math.floor(x/Tf); return f*sch.totalOn + cumUpTo(sch, x-f*Tf); }
-  return up(b)-up(a);
-}
-/* instantaneous emission (0..amp) for waveform drawing */
-function emit(sch,t){
-  var Tf=sch.Tf, lt=t-Math.floor(t/Tf)*Tf;
-  for(var i=0;i<sch.ints.length;i++){ if(lt>=sch.ints[i][0] && lt<sch.ints[i][1]) return sch.ints[i][2]; }
-  return 0;
+/* emitted-light integral for a regular pulse train: period Tsub, pulse length L, phase `off` */
+function onUp(x,L,Tsub){ var f=Math.floor(x/Tsub); return f*L + Math.min(x-f*Tsub,L); }
+function capRatio(off,L,a,texp,Tsub){
+  if(L<=1e-6) return 1;
+  var on=onUp(a+texp-off,L,Tsub)-onUp(a-off,L,Tsub);
+  var ref=(L/Tsub)*texp;
+  return ref>1e-9? on/ref : 1;
 }
 
-/* =================================================== analysis */
-function refAvg(sch){ return sch.totalOn/sch.Tf; }   // long-exposure average emission
-
-/* capture ratio for a sensor row: captured avg emission / reference avg */
-function captureRatio(sch, tStart, texp){
-  var ref=refAvg(sch); if(ref<=1e-9) return 1;
-  return (integ(sch,tStart,tStart+texp)/texp)/ref;
+/* ---------- render the simulated recording ---------- */
+var animPhase=0, animRAF=0, animOn=false;
+var PANEL_ROWS=170;
+function phaseNow(D){
+  if(S.sync) return animPhase % D.Tf;
+  var w = D.beat>0.02 ? US/D.beat : D.Tf;
+  return animPhase % w;
 }
-
-/* peak-to-peak of captured brightness vs exposure phase over one beat window */
-function phaseSwing(D, sch, texp, npts){
-  npts=npts||160;
-  var win = S.genlock ? D.Tf : (D.beatFreq>0.01 ? US/D.beatFreq : D.Tf);
-  win=Math.min(win, D.Tf*400);
-  var mn=1e9,mx=-1e9,sum=0;
-  for(var i=0;i<npts;i++){
-    var ph=i/npts*win;
-    var r=captureRatio(sch, ph, texp);
-    if(r<mn)mn=r; if(r>mx)mx=r; sum+=r;
-  }
-  var mean=sum/npts;
-  return {min:mn,max:mx,mean:mean, pp: mean>0?(mx-mn)/mean:0};
-}
-
-/* percent flicker + flicker index of the optical waveform (white) */
-function flickerStats(D){
-  var sch=schedule(D, D.dutyW, 0);
-  var N=1024, mn=1e9,mx=-1e9,sum=0, vals=new Float64Array(N);
-  for(var i=0;i<N;i++){ var t=i/N*D.Tf; var v=emit(sch,t); vals[i]=v; if(v<mn)mn=v; if(v>mx)mx=v; sum+=v; }
-  var mean=sum/N;
-  var pf = (mx+mn)>0 ? (mx-mn)/(mx+mn)*100 : 0;
-  var above=0; for(var j=0;j<N;j++) if(vals[j]>mean) above+=(vals[j]-mean);
-  var fi = sum>0 ? above/sum : 0;
-  return {pf:pf, fi:fi, mean:mean, min:mn, max:mx};
-}
-
-/* IEEE 1789-style direct-vision classification (approximate, labelled) */
-function riskClass(freq, pf){
-  var lowRisk = 0.08*freq, noEffect = 0.033*freq;
-  if(pf<=noEffect) return {t:'no observable effect', short:'none', c:'ok'};
-  if(pf<=lowRisk) return {t:'low risk', short:'low', c:'warn'};
-  return {t:'above low-risk boundary', short:'elevated', c:'bad'};
-}
-
-/* simple radix-2 FFT */
-function fft(re,im){
-  var N=re.length;
-  for(var i=1,j=0;i<N;i++){var bit=N>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j){var t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t;}}
-  for(var len=2;len<=N;len<<=1){
-    var ang=-2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang);
-    for(var s=0;s<N;s+=len){
-      var cr=1,ci=0;
-      for(var k=0;k<(len>>1);k++){
-        var xr=re[s+k], xi=im[s+k];
-        var yr=re[s+k+(len>>1)]*cr - im[s+k+(len>>1)]*ci;
-        var yi=re[s+k+(len>>1)]*ci + im[s+k+(len>>1)]*cr;
-        re[s+k]=xr+yr; im[s+k]=xi+yi; re[s+k+(len>>1)]=xr-yr; im[s+k+(len>>1)]=xi-yi;
-        var ncr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=ncr;
-      }
-    }
-  }
-}
-function spectrum(D){
-  var frames=8, N=8192;
-  var sch=schedule(D, D.dutyW, 0);
-  var re=new Float64Array(N), im=new Float64Array(N);
-  var Ttot=D.Tf*frames, dt=Ttot/N;
-  for(var i=0;i<N;i++){
-    var w=0.5-0.5*Math.cos(2*Math.PI*i/(N-1));   // Hann
-    re[i]=emit(sch, i*dt)*w;
-  }
-  fft(re,im);
-  var fs=US/dt, out=[], maxMag=1e-9;
-  var kMax=Math.min(N>>1, Math.floor(14000/(fs/N)));
-  for(var k=1;k<kMax;k++){
-    var mag=Math.sqrt(re[k]*re[k]+im[k]*im[k])/N;
-    var f=k*fs/N;
-    out.push([f,mag]); if(mag>maxMag)maxMag=mag;
-  }
-  return {bins:out, maxMag:maxMag, df:fs/N};
-}
-
-/* =================================================== CONTENT patterns */
-function contentAt(col, rowFrac, frameIdx){
-  // returns [r,g,b] EMITTED-LIGHT target 0..1 (before capture modulation): code x trim -> gamma -> x brightness
-  var B=clamp(S.bright/100,0,1), L=clamp(S.level/100,0,1);
-  var tr=[clamp(S.rTrim/100,0,1),clamp(S.gTrim/100,0,1),clamp(S.bTrim/100,0,1)];
-  function em(code,ti){ return B*Math.pow(clamp(code*tr[ti],0,1), S.gamma); }
-  var code=[L,L,L];
-  if(S.content==='vgrad'){ var g=(1-rowFrac)*L; code=[g,g,g]; }
-  else if(S.content==='hgrad'){ var h=col*L; code=[h,h,h]; }
-  else if(S.content==='bars'){
-    var bands=[[1,1,1],[1,1,0],[0,1,1],[0,1,0],[1,0,1],[1,0,0],[0,0,1]];
-    var bd=bands[Math.min(6,Math.floor(col*7))]; code=[bd[0]*L,bd[1]*L,bd[2]*L];
-  }
-  else if(S.content==='movebar'){
-    var pos=((frameIdx*0.08)%1), dd=Math.abs(col-pos); if(dd>0.5)dd=1-dd;
-    var v=(dd<0.06?1:0.1)*L; code=[v,v,v];
-  }
-  return [em(code[0],0), em(code[1],1), em(code[2],2)];
-}
-
-/* =================================================== EXPORT ENGINE HANDLE */
-/* ============================================================ UI LAYER */
-function toast(m){var t=$('#toast');t.textContent=m;t.style.opacity='1';clearTimeout(t._t);t._t=setTimeout(function(){t.style.opacity='0'},1700);}
-var SHUTTERS=[24,25,30,48,50,60,100,120,144,180,200,250,320,400,500,640,800,1000,1250,1600,2000,2500,3200,4000,5000,8000];
-var ANGLES=[11,22.5,45,90,120,144,172.8,180,270,358];
-function shutterDen(){return SHUTTERS.reduce(function(p,c){return Math.abs(US/c-S.shutterUs)<Math.abs(US/p-S.shutterUs)?c:p;});}
-var REFCHIPS=[1920,2400,3000,3200,3840,4800,6000,7680];
-var frameIndex=0, animOn=false, animRAF=0, animPhaseAdd=0;
-var D=null;
-
-/* ---------- control schema ---------- */
-var GROUPS=[
- {name:'Signal chain', open:true, fields:[
-   {k:'frameRate', label:'Output frame rate', type:'seg', opts:[24,25,30,48,50,60,100,120], unit:'Hz'},
-   {k:'contentFps', label:'Content frame rate', type:'seg', opts:[24,25,30,50,60], unit:'fps', help:'Unique images per second in the media file. It should divide the output frame rate evenly.'},
- ]},
- {name:'PWM / grayscale', open:true, fields:[
-   {k:'scheme', label:'Grayscale method', type:'seg', opts:[['conv','Conventional'],['spwm','S-PWM'],['bcm','BCM']], help:'Conventional = one pulse per frame. S-PWM = many sub-periods per frame. BCM = binary-weighted bit slots.'},
-   {k:'scramble', label:'Distribute / scramble pulses', type:'toggle', help:'Spread the ON energy across the frame and shuffle scan or bit order per row. This is what raises the visible flicker frequency.'},
-   {k:'pam', label:'PWM → PAM low-grey hybrid', type:'toggle', help:'Below a floor pulse width, hold the pulse and drop the current instead of shrinking further.'},
-   {k:'refreshChips', label:'Grayscale / visual refresh', type:'chips', opts:REFCHIPS, target:'refresh'},
-   {k:'refresh', label:'', type:'range', min:480, max:9600, step:20, unit:'Hz', help:'Visual repeat rate. For S-PWM the sub-period count K = round(refresh ÷ frame rate).'},
- ]},
- {name:'Driver limits', open:false, fields:[
-   {k:'bits', label:'Grayscale bit depth', type:'seg', opts:[8,10,12,13,14,16], unit:'bit'},
-   {k:'gclk', label:'GCLK / data clock', type:'range', min:5, max:30, step:0.5, unit:'MHz', help:'The bit clock inside the driver IC. With bit depth and scan it sets the maximum resolvable refresh.'},
-   {k:'minPulseNs', label:'Minimum pulse width', type:'range', min:20, max:500, step:5, unit:'ns', help:'Shortest pulse the driver can make. Greys below it are clamped — missing codes and colour crush.'},
-   {k:'pamFloorNs', label:'PAM floor pulse', type:'range', min:100, max:2000, step:20, unit:'ns', showIf:function(){return S.pam}},
- ]},
- {name:'Scan & multiplex', open:false, fields:[
-   {k:'scanN', label:'Scan ratio  ( 1 / N )', type:'select', opts:[1,2,4,6,8,10,12,13,16,20,24,32,40], help:'Row groups sharing the driver outputs. Sets each LED’s maximum wall-clock ON fraction (≈ 1/N) and the row-scan frequency.'},
-   {k:'oe', label:'OE / blanking loss', type:'range', min:0, max:40, step:1, unit:'%', help:'Fraction of each row window lost to output-enable blanking, ghost-cancel and settling.'},
- ]},
- {name:'Dimming & content', open:false, fields:[
-   {k:'bright', label:'Global brightness', type:'range', min:1, max:100, step:1, unit:'%'},
-   {k:'dimSplit', label:'Dimming method', type:'range', min:0, max:100, step:1, unit:'%', fmt:function(v){return v+'% PWM'}, help:'0% = all current-gain (pulses stay wide, amplitude drops). 100% = all PWM (pulses shrink). Most systems sit in between.'},
-   {k:'gamma', label:'Transfer / gamma', type:'seg', opts:[1,2.2,2.4,2.6], help:'1.0 = content value is linear light. 2.2–2.6 = a mid code value is much darker in emitted light.'},
-   {k:'content', label:'Test pattern', type:'select', opts:[['flat','Flat field'],['vgrad','Vertical gradient'],['hgrad','Horizontal gradient'],['bars','Colour bars'],['movebar','Moving bar']]},
-   {k:'level', label:'Content level', type:'range', min:1, max:100, step:1, unit:'%'},
-   {k:'rTrim', label:'R channel trim', type:'range', min:0, max:100, step:1, unit:'%', rgb:'#e46a5c'},
-   {k:'gTrim', label:'G channel trim', type:'range', min:0, max:100, step:1, unit:'%', rgb:'#43b878'},
-   {k:'bTrim', label:'B channel trim', type:'range', min:0, max:100, step:1, unit:'%', rgb:'#5a9ee0'},
- ]},
- {name:'Camera', open:true, fields:[
-   {k:'camFps', label:'Camera frame rate', type:'seg', opts:[24,25,30,50,60,120,240], unit:'fps'},
-   {k:'shutterMode', label:'Shutter units', type:'seg', opts:[['time','1 / x  s'],['angle','angle °']]},
-   {k:'shutterUs', label:'Shutter', type:'shutter', showIf:function(){return S.shutterMode==='time'}, help:'The exposure window width laid over the light waveform.'},
-   {k:'shutterAngle', label:'Shutter angle', type:'angle', showIf:function(){return S.shutterMode==='angle'}},
-   {k:'genlock', label:'Genlock camera to display', type:'toggle', help:'Lock camera rate and phase to the display: bands become static instead of crawling.'},
-   {k:'rolling', label:'Rolling shutter (CMOS)', type:'toggle', help:'Line-by-line readout. Off = global shutter, all rows sampled at once.'},
-   {k:'readoutMs', label:'Sensor readout time', type:'range', min:1, max:33, step:0.5, unit:'ms', showIf:function(){return S.rolling}, help:'Time to read the sensor top to bottom. Shorter = less rolling-band tilt.'},
-   {k:'phase', label:'Exposure start phase', type:'range', min:0, max:100, step:0.5, unit:'%', help:'Where in the beat period the exposure starts. Press Run to sweep it automatically.'},
- ]},
-];
-
-function segBtns(k,opts){
-  return '<div class="seg" data-seg="'+k+'">'+opts.map(function(o){
-    var v=Array.isArray(o)?o[0]:o, lab=Array.isArray(o)?o[1]:o;
-    return '<button data-v="'+v+'" aria-pressed="'+(String(S[k])===String(v))+'">'+lab+'</button>';
-  }).join('')+'</div>';
-}
-function fieldHTML(f){
-  if(f.showIf && !f.showIf()) return '';
-  var h='<div class="field" data-field="'+f.k+'">';
-  var help=f.help?'<span class="i" data-tip="'+f.help.replace(/"/g,'&quot;')+'">i</span>':'';
-  if(f.type==='chips'){
-    return '<div class="field" data-field="'+f.k+'"><div class="flab"><span class="name">'+f.label+help+'</span></div>'+
-      '<div class="seg" data-chips="'+f.target+'">'+f.opts.map(function(v){return '<button data-v="'+v+'">'+v+'</button>';}).join('')+'</div></div>';
-  }
-  if(f.type==='seg'){
-    h+='<div class="flab"><span class="name">'+(f.rgb?'<span class="rgbdot" style="background:'+f.rgb+'"></span>':'')+f.label+help+'</span><span class="v" data-v="'+f.k+'">'+valLabel(f)+'</span></div>'+segBtns(f.k,f.opts);
-  } else if(f.type==='select'){
-    h+='<div class="flab"><span class="name">'+f.label+help+'</span></div><select data-sel="'+f.k+'">'+f.opts.map(function(o){var v=Array.isArray(o)?o[0]:o,l=Array.isArray(o)?o[1]:o;return '<option value="'+v+'"'+(String(S[f.k])===String(v)?' selected':'')+'>'+l+'</option>';}).join('')+'</select>';
-  } else if(f.type==='toggle'){
-    h+='<label class="toggle"><input type="checkbox" data-tog="'+f.k+'"'+(S[f.k]?' checked':'')+'><span class="sw"></span><span>'+f.label+'</span>'+help+'</label>';
-  } else if(f.type==='shutter'){
-    h+='<div class="flab"><span class="name">'+f.label+help+'</span><span class="v" data-v="shutterUs">1/'+shutterDen()+' s</span></div><input type="range" data-shut min="0" max="'+(SHUTTERS.length-1)+'" step="1" value="'+SHUTTERS.indexOf(shutterDen())+'">';
-  } else if(f.type==='angle'){
-    h+='<div class="flab"><span class="name">'+f.label+help+'</span><span class="v" data-v="shutterAngle">'+S.shutterAngle+'&deg;</span></div><input type="range" data-ang min="11" max="358" step="0.2" value="'+S.shutterAngle+'">';
-  } else { /* range */
-    if(f.label) h+='<div class="flab"><span class="name">'+(f.rgb?'<span class="rgbdot" style="background:'+f.rgb+'"></span>':'')+f.label+help+'</span><span class="v" data-v="'+f.k+'">'+valLabel(f)+'</span></div>';
-    else h+='<div class="flab"><span class="name" style="color:var(--ink-3);font-size:.7rem">exact</span><span class="v" data-v="'+f.k+'">'+valLabel(f)+'</span></div>';
-    h+='<input type="range" data-rng="'+f.k+'" min="'+f.min+'" max="'+f.max+'" step="'+f.step+'" value="'+S[f.k]+'">';
-  }
-  return h+'</div>';
-}
-function valLabel(f){
-  var v=S[f.k];
-  if(f.fmt) return f.fmt(v);
-  if(f.type==='seg' && f.k==='gamma') return v==1?'linear':('γ '+v);
-  if(f.unit) return v+' '+f.unit;
-  return String(v);
-}
-function buildControls(){
-  var host=$('#controls'); host.innerHTML='';
-  GROUPS.forEach(function(g){
-    var d=document.createElement('details'); d.className='group'; if(g.open) d.open=true;
-    d.innerHTML='<summary>'+g.name+'</summary><div class="gbody">'+g.fields.map(fieldHTML).join('')+'</div>';
-    host.appendChild(d);
-  });
-  wireControls();
-}
-function wireControls(){
-  $$('#controls [data-seg]').forEach(function(seg){
-    var k=seg.dataset.seg;
-    $$('button',seg).forEach(function(b){ b.onclick=function(){
-      var raw=b.dataset.v; S[k]= (/^-?\d/.test(raw)&&!isNaN(+raw))? +raw : raw;
-      $$('button',seg).forEach(function(x){x.setAttribute('aria-pressed',String(x===b));});
-      onChange(true);
-    };});
-  });
-  $$('#controls [data-chips]').forEach(function(seg){
-    var tgt=seg.dataset.chips;
-    $$('button',seg).forEach(function(b){ b.onclick=function(){ S[tgt]=+b.dataset.v; onChange(true); };});
-  });
-  $$('#controls [data-sel]').forEach(function(s){ s.onchange=function(){ var raw=s.value; S[s.dataset.sel]=(!isNaN(+raw)?+raw:raw); onChange(true); };});
-  $$('#controls [data-tog]').forEach(function(c){ c.onchange=function(){ S[c.dataset.tog]=c.checked; onChange(true); };});
-  $$('#controls [data-rng]').forEach(function(r){ r.oninput=function(){ S[r.dataset.rng]=+r.value; onChange(false); };});
-  var sh=$('#controls [data-shut]'); if(sh) sh.oninput=function(){ S.shutterUs=US/SHUTTERS[+sh.value]; onChange(false); };
-  var an=$('#controls [data-ang]'); if(an) an.oninput=function(){ S.shutterAngle=+an.value; onChange(false); };
-  $$('#controls .i[data-tip]').forEach(function(i){
-    i.onmouseenter=function(e){ var tb=$('#tipbox'); tb.textContent=i.dataset.tip; tb.style.opacity='1';
-      var r=i.getBoundingClientRect(); tb.style.left=Math.min(r.left, innerWidth-250)+'px'; tb.style.top=(r.bottom+6)+'px'; };
-    i.onmouseleave=function(){ $('#tipbox').style.opacity='0'; };
-  });
-}
-function refreshValueLabels(){
-  GROUPS.forEach(function(g){g.fields.forEach(function(f){
-    var el=$('#controls .v[data-v="'+f.k+'"]');
-    if(el){ if(f.k==='shutterUs') el.textContent='1/'+shutterDen()+' s'; else if(f.k==='shutterAngle') el.textContent=S.shutterAngle+'°'; else el.textContent=valLabel(f); }
-  });});
-}
-var showIfSig='';
-function maybeRebuild(){
-  var sig=[S.pam,S.rolling,S.shutterMode].join('|');
-  if(sig!==showIfSig){ showIfSig=sig; buildControls(); }
-}
-
-/* ---------- canvas helpers ---------- */
-function ctx2d(cv,h){ var W=cv.clientWidth||cv.parentNode.clientWidth||600; var dpr=Math.min(devicePixelRatio||1,2);
-  cv.width=W*dpr; cv.height=h*dpr; cv.style.height=h+'px'; var c=cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0); return {c:c,W:W,H:h}; }
-var SC={bg:'#0a0e12',grid:'rgba(122,150,160,.14)',gridS:'rgba(122,150,160,.30)',ink:'#c9d5d8',dim:'#7c8c90',trace:'#3cc7d0',glow:'rgba(60,199,208,.28)',expo:'#e2a24c',expoFill:'rgba(226,162,76,.15)',warn:'#e46a5c',ok:'#43b878',violet:'#9a86e8'};
-
-function beatWindow(D){ return S.genlock ? D.Tf : (D.beatFreq>0.02 ? US/D.beatFreq : D.Tf); }
-function phaseTime(D){ return (S.phase/100)*beatWindow(D) + animPhaseAdd; }
-
-/* ---------- FRAME (simulated capture) ---------- */
-var frameOff=document.createElement('canvas');
-function renderCapture(D, octx, RW, RH, phaseOffset, fIdx){
-  var img=octx.createImageData(RW,RH), data=img.data;
-  var cache={};
-  function sch(ch,g){ var key=ch+g; if(!cache[key]){ var duty= ch==='R'?D.dutyR: ch==='G'?D.dutyG: D.dutyB; cache[key]=schedule(D,duty,g); } return cache[key]; }
-  var dRows=Math.max(D.scanN*4, 48);
-  var ph = phaseOffset;
-  var rr=new Float32Array(RH), rg=new Float32Array(RH), rb=new Float32Array(RH);
+var lastBand=0, lastFlick=0;
+function drawCam(){
+  var D=der();
+  var cv=$('#cam'), CW=cv.clientWidth||760;
+  var RW=clamp(Math.round(CW),260,820), RH=clamp(Math.round(RW*0.62),220,440);
+  cv.width=RW; cv.height=RH; cv.style.height=RH+'px';
+  var ctx=cv.getContext('2d');
+  var img=ctx.createImageData(RW,RH), data=img.data;
+  var ph=phaseNow(D);
+  var split=compareOn, wipeX=Math.round(RW*0.46);
+  var bmin=1e9,bmax=-1e9;
   for(var y=0;y<RH;y++){
-    var fr=y/RH;
-    var t0 = D.rolling ? ph + fr*(S.readoutMs*1000) : ph;
-    var g=Math.floor(fr*dRows)%D.scanN;
-    rr[y]=captureRatio(sch('R',g),t0,D.texp);
-    rg[y]=captureRatio(sch('G',g),t0,D.texp);
-    rb[y]=captureRatio(sch('B',g),t0,D.texp);
-  }
-  var enc=1/2.2;
-  for(var y2=0;y2<RH;y2++){
-    var fr2=y2/RH;
+    var rf=y/RH;
+    var t0 = D.readoutUs>0 ? ph + rf*D.readoutUs : ph;
+    var g = Math.floor(rf*PANEL_ROWS) % D.N;
+    var off = g*D.rowWin;
+    // row luminance factor for the band metric (mid-grey probe)
+    var Lp=0.35*D.rowActive;
+    var rr=capRatio(off,Lp,t0,D.texp,D.Tsub);
+    if(rr<bmin)bmin=rr; if(rr>bmax)bmax=rr;
     for(var x=0;x<RW;x++){
-      var cx=x/RW, c;
-      if(S.chSplit){
-        var seg=Math.floor(cx*3), lx=(cx*3)%1;
-        c=contentAt(lx,fr2,fIdx);
-        var vv = seg===0? c[0]*rr[y2] : seg===1? c[1]*rg[y2] : c[2]*rb[y2];
-        vv=Math.pow(clamp(vv,0,1),enc)*255;
-        var i0=(y2*RW+x)*4;
-        data[i0]= seg===0?vv:seg*0; data[i0+1]= seg===1?vv:0; data[i0+2]= seg===2?vv:0; data[i0+3]=255;
-        continue;
+      var eye = split && x<wipeX;
+      var c=contentAt(x/RW, rf);
+      var i=(y*RW+x)*4;
+      for(var ch=0;ch<3;ch++){
+        var v=c[ch];
+        var disp;
+        if(eye){ disp=v; }
+        else { var L=v*D.rowActive; disp=v*capRatio(off,L,t0,D.texp,D.Tsub); }
+        data[i+ch]=linSrgb(Math.min(disp,1))*255;
       }
-      c=contentAt(cx,fr2,fIdx);
-      var R=Math.pow(clamp(c[0]*rr[y2],0,1),enc)*255;
-      var G=Math.pow(clamp(c[1]*rg[y2],0,1),enc)*255;
-      var B=Math.pow(clamp(c[2]*rb[y2],0,1),enc)*255;
-      var i=(y2*RW+x)*4; data[i]=R;data[i+1]=G;data[i+2]=B;data[i+3]=255;
+      data[i+3]=255;
     }
   }
-  octx.putImageData(img,0,0);
-  return {rr:rr,rg:rg,rb:rb};
-}
-function drawFrame(D){
-  var cv=$('#frameCanvas'), o=ctx2d(cv,300);
-  var RW=600, RH=300;
-  frameOff.width=RW; frameOff.height=RH;
-  var octx=frameOff.getContext('2d');
-  var res=renderCapture(D, octx, RW, RH, phaseTime(D), frameIndex);
-  o.c.imageSmoothingEnabled=false;
-  o.c.drawImage(frameOff,0,0,o.W,300);
-  // band-contrast metric + luminance profile strip
-  var mn=1e9,mx=-1e9,lum=new Float32Array(RH);
-  for(var y=0;y<RH;y++){ var l=0.3*res.rr[y]+0.6*res.rg[y]+0.1*res.rb[y]; lum[y]=l; if(l<mn)mn=l; if(l>mx)mx=l; }
-  lastBand=(mx+mn)>0?(mx-mn)/(mx+mn):0;
-  var pw=50, px=o.W-pw;
-  o.c.fillStyle='rgba(7,11,14,.78)'; o.c.fillRect(px,0,pw,300);
-  o.c.strokeStyle='rgba(122,150,160,.25)'; o.c.lineWidth=1;
-  o.c.beginPath(); o.c.moveTo(px+pw/2,0); o.c.lineTo(px+pw/2,300); o.c.stroke();
-  o.c.strokeStyle=SC.trace; o.c.lineWidth=1.5; o.c.beginPath();
-  for(var y2=0;y2<RH;y2++){ var xx=px+6+(pw-12)*clamp(lum[y2]/1.35,0,1), yy=y2/RH*300; if(y2===0)o.c.moveTo(xx,yy);else o.c.lineTo(xx,yy); }
-  o.c.stroke();
-  o.c.fillStyle=SC.dim;o.c.font='8px "IBM Plex Mono",monospace';o.c.fillText('row profile',px+3,10);
-  // caption
-  var mode = D.rolling? ('rolling, readout '+S.readoutMs+' ms') : 'global shutter';
-  $('#frameCap').textContent = mode+'  ·  shutter '+(S.shutterMode==='angle'? (S.shutterAngle+'° = '+ (US/S.camFps*S.shutterAngle/360/1000).toFixed(2)+' ms') : ('1/'+shutterDen()+' s'))+'  ·  '+(S.genlock?'genlocked (static bands)':'free phase')+(S.chSplit?'  ·  R | G | B channels':'');
-}
-var lastBand=0;
-
-/* ---------- WAVEFORM ---------- */
-function drawWave(D){
-  var cv=$('#waveCanvas'), o=ctx2d(cv,220), c=o.c, W=o.W, H=220;
-  c.clearRect(0,0,W,H);
-  var padL=8,padR=8,padT=10,padB=22, gw=W-padL-padR, gh=H-padT-padB;
-  var span=D.Tf*S.waveSpanFrames;
-  var ph=phaseTime(D);
-  var start=Math.max(0, ph-(span-D.texp)/2);
-  var sch=schedule(D, D.dutyW, 0);
-  function X(t){return padL+gw*(t-start)/span;}
-  var base=padT+gh-3, amp=gh-10;
-  c.strokeStyle=SC.grid;c.lineWidth=1;
-  for(var i=0;i<=10;i++){var gx=padL+gw*i/10;c.beginPath();c.moveTo(gx,padT);c.lineTo(gx,padT+gh);c.stroke();}
-  // row-active shading (group 0)
-  c.fillStyle='rgba(122,150,160,.09)';
-  var K=D.K;
-  for(var k=Math.floor(start/D.Tsub);k<(start+span)/D.Tsub+1;k++){
-    var ws = (S.scheme==='conv') ? 0 : k*D.Tsub;
-    var wl = (S.scheme==='conv') ? D.Tf/D.scanN : D.rowWin;
-    var a=X(ws), b=X(ws+wl);
-    c.fillRect(clamp(a,padL,padL+gw),padT, clamp(b,padL,padL+gw)-clamp(a,padL,padL+gw), gh);
-    if(S.scheme==='conv') break;
-  }
-  // exposure
-  c.fillStyle=SC.expoFill; c.fillRect(X(ph),padT,X(ph+D.texp)-X(ph),gh);
-  c.strokeStyle=SC.expo;c.lineWidth=1.4;c.strokeRect(X(ph),padT,X(ph+D.texp)-X(ph),gh);
-  // trace
-  c.beginPath();
-  var step=Math.max(0.2,span/2600);
-  for(var t=start;t<=start+span;t+=step){ var e=emit(sch,t); var y=base-e*amp; if(t===start)c.moveTo(X(t),y);else c.lineTo(X(t),y); }
-  c.strokeStyle=SC.trace;c.lineWidth=2;c.shadowColor=SC.glow;c.shadowBlur=6;c.stroke();c.shadowBlur=0;
-  c.fillStyle=SC.dim;c.font='10px "IBM Plex Mono",monospace';
-  c.fillText(Math.round(span)+' µs  ·  '+S.waveSpanFrames+' frame'+(S.waveSpanFrames>1?'s':''),padL+2,H-7);
-  c.textAlign='right';c.fillStyle=SC.expo;c.fillText('N = '+(D.texp/D.Tsub).toFixed(2)+' sub-periods',padL+gw,H-7);c.textAlign='left';
-}
-
-/* ---------- ANALYSIS TABS ---------- */
-function drawAnalysis(D){
-  var which=S.analysis;
-  var cv=$('#analysisCanvas'), o=ctx2d(cv,260), c=o.c, W=o.W, H=260;
-  c.clearRect(0,0,W,H);
-  if(which==='spectrum') return drawSpectrum(D,c,W,H);
-  if(which==='phase') return drawPhase(D,c,W,H);
-  if(which==='shutter') return drawShutterSweep(D,c,W,H);
-  if(which==='film') return drawFilm(D,c,W,H);
-}
-function axis(c,W,H,padL,padR,padT,padB,xlab){
-  c.strokeStyle=SC.gridS;c.lineWidth=1;c.beginPath();c.moveTo(padL,H-padB);c.lineTo(W-padR,H-padB);c.stroke();
-  c.fillStyle=SC.dim;c.font='10px "IBM Plex Mono",monospace';c.textAlign='center';c.fillText(xlab,W/2,H-4);c.textAlign='left';
-}
-function drawSpectrum(D,c,W,H){
-  var sp=lastSpectrum||spectrum(D); lastSpectrum=sp;
-  var padL=42,padR=12,padT=14,padB=26, gw=W-padL-padR, gh=H-padT-padB;
-  var fMax=Math.min(12000, sp.bins[sp.bins.length-1][0]);
-  function X(f){return padL+gw*f/fMax;}
-  function Y(m){return padT+gh-gh*Math.min(1,m/sp.maxMag);}
-  c.strokeStyle=SC.grid;
-  for(var f=0;f<=fMax;f+=2000){c.beginPath();c.moveTo(X(f),padT);c.lineTo(X(f),padT+gh);c.stroke();
-    c.fillStyle=SC.dim;c.font='9px "IBM Plex Mono",monospace';c.textAlign='center';c.fillText((f/1000)+'k',X(f),H-14);c.textAlign='left';}
-  // bars
-  c.strokeStyle=SC.trace;c.lineWidth=1.4;c.beginPath();
-  for(var i=0;i<sp.bins.length;i++){ var b=sp.bins[i]; if(b[0]>fMax)break; c.moveTo(X(b[0]),padT+gh); c.lineTo(X(b[0]),Y(b[1])); }
-  c.stroke();
-  // markers
-  function mark(freq,label,col){ if(freq<=0||freq>fMax)return;
-    c.strokeStyle=col;c.setLineDash([3,3]);c.lineWidth=1;c.beginPath();c.moveTo(X(freq),padT-4);c.lineTo(X(freq),padT+gh);c.stroke();c.setLineDash([]);
-    c.fillStyle=col;c.font='9px "IBM Plex Mono",monospace';c.save();c.translate(X(freq)+3,padT+8);c.fillText(label,0,0);c.restore(); }
-  mark(D.frameRate,'frame',SC.violet);
-  mark(D.rowScanFreq,'scan '+Math.round(D.rowScanFreq),SC.amber||SC.expo);
-  mark(D.pwmFund,'PWM '+Math.round(D.pwmFund),SC.ok);
-  // shutter sinc response
-  c.strokeStyle='rgba(226,162,76,.9)';c.lineWidth=1.5;c.beginPath();
-  for(var xx=0;xx<=gw;xx+=2){ var ff=xx/gw*fMax; var s=Math.PI*ff*D.texp/US; var r=s===0?1:Math.abs(Math.sin(s)/s);
-    var y=padT+gh-gh*r; if(xx===0)c.moveTo(padL+xx,y);else c.lineTo(padL+xx,y); }
-  c.stroke();
-  axis(c,W,H,padL,padR,padT,padB,'frequency  (shutter response = amber curve; nulls suppress that component)');
-  c.fillStyle=SC.dim;c.font='9px "IBM Plex Mono",monospace';c.save();c.translate(11,H/2);c.rotate(-Math.PI/2);c.textAlign='center';c.fillText('optical spectrum',0,0);c.restore();
-}
-function drawPhase(D,c,W,H){
-  var padL=46,padR=14,padT=14,padB=26, gw=W-padL-padR, gh=H-padT-padB;
-  var sch=schedule(D,D.dutyW,0);
-  var win=beatWindow(D); var N=380, pts=[], mn=1e9,mx=-1e9,sum=0;
-  for(var i=0;i<N;i++){ var ph=i/N*win; var r=captureRatio(sch,ph,D.texp); pts.push(r); if(r<mn)mn=r;if(r>mx)mx=r;sum+=r; }
-  var mean=sum/N; var lo=Math.min(mn,0.6), hi=Math.max(mx,1.4);
-  function Y(v){return padT+gh-gh*(v-lo)/(hi-lo);}
-  c.strokeStyle=SC.grid;
-  [0.5,0.75,1,1.25,1.5].forEach(function(v){ if(v<lo||v>hi)return; c.beginPath();c.moveTo(padL,Y(v));c.lineTo(W-padR,Y(v));c.stroke();
-    c.fillStyle=SC.dim;c.font='9px "IBM Plex Mono",monospace';c.fillText((v*100).toFixed(0)+'%',6,Y(v)+3); });
-  c.strokeStyle='rgba(60,199,208,.35)';c.beginPath();c.moveTo(padL,Y(1));c.lineTo(W-padR,Y(1));c.stroke();
-  c.strokeStyle=SC.trace;c.lineWidth=2;c.beginPath();
-  for(var j=0;j<N;j++){ var x=padL+gw*j/(N-1); var y=Y(pts[j]); if(j===0)c.moveTo(x,y);else c.lineTo(x,y); }
-  c.stroke();
-  // current phase marker
-  var cph=(phaseTime(D)%win)/win; c.strokeStyle=SC.expo;c.setLineDash([3,3]);c.beginPath();c.moveTo(padL+gw*cph,padT);c.lineTo(padL+gw*cph,padT+gh);c.stroke();c.setLineDash([]);
-  axis(c,W,H,padL,padR,padT,padB, (S.genlock?'exposure phase within one frame':'exposure phase within one beat period  ('+ (D.beatFreq>0.02? D.beatFreq.toFixed(2)+' Hz beat':'no beat') +')') );
-  c.fillStyle=SC.ink;c.font='10px "IBM Plex Mono",monospace';
-  c.fillText('peak-to-peak  '+((mx-mn)/mean*100).toFixed(1)+'%  of mean',padL+4,padT+12);
-}
-function drawShutterSweep(D,c,W,H){
-  var padL=46,padR=14,padT=16,padB=26, gw=W-padL-padR, gh=H-padT-padB;
-  var lo=Math.log(1/8000), hi=Math.log(1/24);
-  var N=90, pts=[], mx=0.001;
-  for(var i=0;i<N;i++){
-    var texp=Math.exp(lo+(hi-lo)*i/(N-1))*US;
-    var sw=phaseSwing(D, schedule(D,D.dutyW,0), texp, 48);
-    pts.push([texp,sw.pp]); if(sw.pp>mx)mx=sw.pp;
-  }
-  mx=Math.min(mx,2);
-  function X(t){return padL+gw*(Math.log(t/US)-lo)/(hi-lo);}
-  function Y(v){return padT+gh-gh*Math.min(1,v/mx);}
-  // clean-window shading
-  c.fillStyle='rgba(67,184,120,.12)';
-  for(var s=0;s<pts.length-1;s++){ if(pts[s][1]<0.04){ c.fillRect(X(pts[s][0]),padT, Math.max(1,X(pts[s+1][0])-X(pts[s][0])), gh); } }
-  c.strokeStyle=SC.grid;
-  [24,50,100,200,500,1000,2000,4000,8000].forEach(function(den){ var t=US/den; if(t<US/8000||t>US/24)return; c.beginPath();c.moveTo(X(t),padT);c.lineTo(X(t),padT+gh);c.stroke();
-    c.fillStyle=SC.dim;c.font='9px "IBM Plex Mono",monospace';c.textAlign='center';c.fillText('1/'+den,X(t),H-14);c.textAlign='left'; });
-  c.strokeStyle=SC.trace;c.lineWidth=2;c.beginPath();
-  pts.forEach(function(p,i){ var x=X(p[0]),y=Y(p[1]); if(i===0)c.moveTo(x,y);else c.lineTo(x,y); });
-  c.stroke();
-  // current shutter marker
-  c.strokeStyle=SC.expo;c.setLineDash([3,3]);c.beginPath();c.moveTo(X(D.texp),padT);c.lineTo(X(D.texp),padT+gh);c.stroke();c.setLineDash([]);
-  c.fillStyle=SC.ok;c.font='9px "IBM Plex Mono",monospace';c.fillText('green band = on-camera swing < 4%',padL+4,padT+10);
-  axis(c,W,H,padL,padR,padT,padB,'camera shutter  —  on-camera brightness swing (peak-to-peak / mean)');
-}
-function drawFilm(D,c,W,H){
-  var n=8, gap=6, fw=(W-gap*(n-1))/n, top=15, fh=H-top-16;
-  var RW=90, RH=Math.round(fh);
-  var off=document.createElement('canvas'); off.width=RW; off.height=RH; var octx=off.getContext('2d');
-  var win=beatWindow(D);
-  for(var i=0;i<n;i++){
-    var ph = phaseTime(D) + i*(S.genlock? D.Tcam : win/n);
-    renderCapture(D, octx, RW, RH, ph, frameIndex+i);
-    c.imageSmoothingEnabled=false;
-    c.drawImage(off, i*(fw+gap), top, fw, fh);
-    c.fillStyle=SC.dim;c.font='9px "IBM Plex Mono",monospace';c.fillText('frame '+(i+1), i*(fw+gap)+2, 10);
-  }
-  c.fillStyle=SC.dim;c.font='9px "IBM Plex Mono",monospace';
-  c.fillText(S.genlock? 'consecutive genlocked frames — should look identical' : 'consecutive frames across one beat period — watch for flicker & band drift', 2, H-4);
-}
-var lastSpectrum=null;
-
-/* ---------- METRICS ---------- */
-function pill(cls,txt){return '<span class="pill '+cls+'">'+txt+'</span>';}
-function fmtHz(v){ if(v>=1e6) return (v/1e6).toFixed(v%1e6<1e4?0:1)+' MHz'; if(v>=1000) return (v/1000).toFixed(v%1000<10?0:1)+' kHz'; return Math.round(v)+' Hz'; }
-function computeMetrics(D){
-  var fl=flickerStats(D);
-  var sw=phaseSwing(D, schedule(D,D.dutyW,0), D.texp, 200);
-  var risk=riskClass(D.pwmFund, fl.pf);
-  var Nsub=D.texp/D.Tsub;
-  return {fl:fl, sw:sw, risk:risk, Nsub:Nsub, band:lastBand};
-}
-function renderResults(D){
-  var m=computeMetrics(D); lastMetrics=m;
-  // feasibility
-  var hr=D.headroom;
-  var fb=$('#feasBody');
-  fb.innerHTML=
-    frow('PWM fundamental', fmtHz(D.pwmFund), D.feasible?pill('ok','in budget'):pill('bad','over budget'))+
-    frow('Sub-periods  K', D.K+' × '+S.frameRate+' Hz','')+
-    frow('GCLK required', fmtHz(D.gclkNeeded), '')+
-    frow('GCLK headroom', hr>=10?'»10×':hr.toFixed(2)+'×', hr>=1.5?pill('ok','ample'):hr>=1?pill('warn','tight'):pill('bad','short'))+
-    frow('Rough max refresh', fmtHz(D.maxRefresh),'')+
-    frow('Row-scan frequency', fmtHz(D.rowScanFreq),'')+
-    frow('Min pulse vs LSB', S.minPulseNs+' / '+D.smallestPulseNs.toFixed(0)+' ns','')+
-    frow('Low greys crushed', D.crushCode>1? ('codes < '+D.crushCode+' ('+(100*D.crushCode/D.levels).toFixed(1)+'%)') : 'none', (D.crushCode/D.levels)>0.02?pill('warn','watch'):pill('ok','ok'));
-  // tiles
-  var swPct=m.sw.pp*100, bandPct=m.band*100;
-  var swTxt = swPct>300?'>300':swPct.toFixed(swPct<10?1:0);
-  $('#tiles').innerHTML=
-    tile('On-camera flicker','pp swing / mean', swTxt,'%', swPct<3?'ok':swPct<10?'warn':'bad', true)+
-    tile('Band contrast','brightest vs darkest row', bandPct.toFixed(1),'%', bandPct<4?'ok':bandPct<15?'warn':'bad')+
-    tile('Capture ratio','vs long-exposure ref', (m.sw.mean*100).toFixed(0),'%', Math.abs(m.sw.mean-1)<0.06?'ok':Math.abs(m.sw.mean-1)<0.15?'warn':'bad')+
-    tile('Percent flicker','optical waveform', m.fl.pf.toFixed(0),'%','')+
-    tile('Flicker index','optical waveform', m.fl.fi.toFixed(3),'','')+
-    tile('Sub-periods in exposure','N = f × t_exp', m.Nsub.toFixed(2),'', Math.abs(m.Nsub-Math.round(m.Nsub))<0.04?'ok':'')+
-    tile('PWM fundamental','', fmtHz(D.pwmFund),'','k')+
-    tile('Direct-vision risk', m.risk.t+' · IEEE 1789≈', m.risk.short,'', m.risk.c);
-  renderRecs(D,m);
-  renderCompare(m,D);
-}
-function frow(k,v,extra){ return '<div class="frow"><span class="k">'+k+'</span><span class="val">'+v+' '+(extra||'')+'</span></div>'; }
-function tile(l,d,v,u,cls,key){ return '<div class="tile'+(key?' k':'')+'"><div class="tl">'+l+'</div><div class="tv '+(cls||'')+'">'+v+(u?'<span class="u">'+u+'</span>':'')+'</div>'+(d?'<div class="td">'+d+'</div>':'')+'</div>'; }
-
-function nullShutters(freq){
-  var out=[];
-  for(var n=1;n<=64;n*=2){ var den=freq/n; if(den<20||den>10000)continue;
-    var near=SHUTTERS.reduce(function(p,c){return Math.abs(c-den)<Math.abs(p-den)?c:p;});
-    if(Math.abs(near-den)/den<0.06 && out.indexOf(near)<0) out.push(near);
-  }
-  return out;
-}
-function renderRecs(D,m){
-  var r=[];
-  // cadence
-  var ratio=S.frameRate/S.contentFps;
-  if(Math.abs(ratio-Math.round(ratio))<0.001) r.push('<b>Cadence OK.</b> '+S.contentFps+' fps → '+S.frameRate+' Hz repeats each frame '+Math.round(ratio)+'×, evenly.');
-  else r.push('<b>Cadence uneven.</b> '+S.contentFps+' fps into '+S.frameRate+' Hz is not an integer ratio ('+ratio.toFixed(2)+'×) → motion judder and a brightness beat the camera can freeze. Produce at 25 or 50 fps.');
-  // feasibility
-  if(!D.feasible){
-    var needG=(D.gclkNeeded/1e6).toFixed(1);
-    r.push('<b>Refresh likely over driver budget (rough estimate).</b> '+fmtHz(D.pwmFund)+' visual at '+S.bits+'-bit / 1/'+D.scanN+' scan implies GCLK ≈ '+needG+' MHz (have '+S.gclk+'). Lower the refresh, bit depth or scan ratio, raise GCLK, or confirm the real driver’s S-PWM implementation.');
-  }
-  // camera flicker
-  if(m.sw.pp*100>6){
-    var ns=nullShutters(D.pwmFund);
-    r.push('<b>On-camera flicker is significant ('+(m.sw.pp*100).toFixed(0)+'%).</b> Shutter values that null the '+Math.round(D.pwmFund)+' Hz PWM component: '+(ns.length?ns.map(function(x){return '1/'+x;}).join(', '):'none in range')+'. These reduce whole-frame flicker but not rolling bands.');
+  ctx.putImageData(img,0,0);
+  lastBand = (bmax+bmin)>0 ? (bmax-bmin)/(bmax+bmin) : 0;
+  // divider + labels
+  if(split){
+    ctx.fillStyle='rgba(255,255,255,.85)'; ctx.fillRect(wipeX-1,0,2,RH);
+    ctx.font='600 11px "IBM Plex Mono",monospace';
+    ctx.fillStyle='rgba(255,255,255,.92)';
+    ctx.fillText('NAKED EYE', 8, 16);
+    ctx.textAlign='right'; ctx.fillText('THIS CAMERA', RW-8, 16); ctx.textAlign='left';
   } else {
-    r.push('<b>On-camera flicker is low ('+(m.sw.pp*100).toFixed(1)+'%)</b> at this shutter. Verify on the real system.');
+    ctx.font='600 11px "IBM Plex Mono",monospace'; ctx.fillStyle='rgba(255,255,255,.92)';
+    ctx.fillText('THIS CAMERA', 8, 16);
   }
-  // bands
-  if(m.band*100>10 && D.rolling){
-    r.push('<b>Rolling-shutter banding ('+(m.band*100).toFixed(0)+'%).</b> '+(S.genlock?'Even genlocked, the scan/OE structure prints bands — review scan file and OE timing.':'Use the camera anti-flicker / synchro-scan shutter, genlock, or a global-shutter body.'));
+  // flicker metric: sweep exposure phase over one beat/frame at mid grey
+  var win = S.sync ? D.Tf : (D.beat>0.02? US/D.beat : D.Tf);
+  var mn=1e9,mx=-1e9,su=0, Lm=0.4*D.rowActive;
+  for(var s=0;s<200;s++){
+    var pp=s/200*win;
+    // average a few scan groups (camera row mixes them)
+    var acc=0, ng=Math.min(D.N,6);
+    for(var gg=0;gg<ng;gg++) acc+=capRatio((gg*D.N/ng|0)*D.rowWin, Lm, pp, D.texp, D.Tsub);
+    acc/=ng;
+    if(acc<mn)mn=acc; if(acc>mx)mx=acc; su+=acc;
   }
-  // brightness
-  if(S.bright<25 && m.sw.pp*100>4) r.push('<b>Low brightness ('+S.bright+'%).</b> The ON pulse is short and the dark gap long. Raising brightness toward the validated operating point is the quickest mitigation; otherwise re-tune the PWM / current-gain split.');
-  // beat
-  if(D.beatFreq>0.5) r.push('<b>Camera beats the display.</b> '+S.camFps+' fps vs '+S.frameRate+' Hz → '+D.beatFreq.toFixed(1)+' Hz roll. Use 25 or 50 fps, or genlock.');
-  // scheme
-  if(S.scheme==='conv' && D.pwmFund<300) r.push('<b>Conventional PWM at '+Math.round(D.pwmFund)+' Hz.</b> One pulse per frame keeps the fundamental at the frame rate — camera-hostile. Enable S-PWM / pulse distribution.');
-  if(S.scheme==='bcm' && !S.scramble) r.push('<b>Unscrambled BCM.</b> The MSB pulse dominates and sits near the frame rate. Enable scrambling to push energy to higher frequencies.');
-  $('#recs').innerHTML=r.map(function(x){return '<li>'+x+'</li>';}).join('');
+  lastFlick = su>0 ? (mx-mn)/(su/200) : 0;
+  updateCaption(D);
+}
+function updateCaption(D){
+  $('#camCap').textContent =
+    'Output '+S.frame+' Hz · content '+S.contentFps+' fps · refresh '+S.ref+' Hz · scan 1/'+D.N+
+    '  →  camera '+S.cam+' fps · 1/'+SHUTS[S.shutIx]+' s · '+
+    (S.roll?'rolling':'global')+' shutter'+(S.sync?' · genlocked':'')+
+    '   ·   row-scan ≈ '+ (D.rowScanHz>=1000?(D.rowScanHz/1000).toFixed(D.rowScanHz%1000?1:0)+' kHz':Math.round(D.rowScanHz)+' Hz');
 }
 
-/* ---------- COMPARE (pin A) ---------- */
-var pinnedA=null, lastMetrics=null;
-function renderCompare(m,D){
-  var box=$('#cmpBox');
-  if(!pinnedA){ box.hidden=true; return; }
-  box.hidden=false; $('#cmpName').textContent=pinnedA.name;
-  function dr(label,now,then,unit,lowerBetter){
-    var d=now-then; var cls=Math.abs(d)<1e-6?'':(d>0? (lowerBetter?'up':'down') : (lowerBetter?'down':'up'));
-    return '<div class="drow"><span>'+label+'</span><span class="d '+cls+'">'+(d>=0?'+':'')+d.toFixed( unit==='%'?1:(Math.abs(d)<10?2:0))+' '+unit+'</span></div>';
+/* ---------- waveform ---------- */
+function drawWave(){
+  if($('#waveBody').hidden) return;
+  var D=der();
+  var cv=$('#wave'), W=cv.clientWidth||700, H=150;
+  cv.width=W; cv.height=H; cv.style.height=H+'px';
+  var c=cv.getContext('2d'); c.clearRect(0,0,W,H);
+  var pad=8, gw=W-2*pad, gh=H-24;
+  var span=Math.max(D.Tsub*8, D.texp*1.4);
+  var ph=phaseNow(D);
+  var start=Math.max(0, ph-(span-D.texp)/2);
+  var off=0, L=0.8*D.rowActive;
+  function X(t){return pad+gw*(t-start)/span;}
+  var base=8+gh, amp=gh-6;
+  c.strokeStyle='rgba(122,150,160,.16)'; c.lineWidth=1;
+  for(var i=0;i<=10;i++){var gx=pad+gw*i/10;c.beginPath();c.moveTo(gx,8);c.lineTo(gx,8+gh);c.stroke();}
+  c.fillStyle='rgba(226,162,76,.16)'; c.fillRect(X(ph),8,X(ph+D.texp)-X(ph),gh);
+  c.strokeStyle='#e2a24c'; c.lineWidth=1.3; c.strokeRect(X(ph),8,X(ph+D.texp)-X(ph),gh);
+  c.beginPath();
+  for(var t=start;t<=start+span;t+=Math.max(0.2,span/2400)){
+    var lt=((t-off)%D.Tsub+D.Tsub)%D.Tsub;
+    var on=lt<L?1:0;
+    var yy=base-on*amp;
+    if(t===start)c.moveTo(X(t),yy); else c.lineTo(X(t),yy);
   }
-  $('#cmpRows').innerHTML=
-    dr('camera flicker', m.sw.pp*100, pinnedA.m.sw.pp*100,'%',true)+
-    dr('band contrast', m.band*100, pinnedA.m.band*100,'%',true)+
-    dr('percent flicker', m.fl.pf, pinnedA.m.fl.pf,'%',true)+
-    dr('PWM fundamental', D.pwmFund, pinnedA.D.pwmFund,'Hz',false)+
-    dr('capture ratio', m.sw.mean*100, pinnedA.m.sw.mean*100,'%',false);
+  c.strokeStyle='#3cc7d0'; c.lineWidth=2; c.shadowColor='rgba(60,199,208,.3)'; c.shadowBlur=6; c.stroke(); c.shadowBlur=0;
+  c.fillStyle='rgba(126,140,146,.9)'; c.font='10px "IBM Plex Mono",monospace';
+  c.fillText(Math.round(span)+' µs shown', pad+2, H-6);
+  c.textAlign='right'; c.fillText('shutter catches ≈ '+(D.texp/D.Tsub).toFixed(1)+' bursts', W-pad, H-6); c.textAlign='left';
 }
 
-/* ---------- MAIN RECOMPUTE ---------- */
-var rafPending=0;
-function onChange(full){
-  clearHash();
-  if(rafPending) cancelAnimationFrame(rafPending);
-  rafPending=requestAnimationFrame(function(){
-    maybeRebuild(); refreshValueLabels();
-    D=der();
-    if(full){ lastSpectrum=null; }
-    drawFrame(D); drawWave(D);
-    if(full || S.analysis==='phase'||S.analysis==='film') drawAnalysis(D);
-    else drawAnalysis(D);
-    renderResults(D);
-    scheduleHash();
+/* ---------- verdict + tips ---------- */
+function pctCls(p,a,b){ return p<a?'ok':p<b?'mild':'bad'; }
+function recompute(){
+  drawCam(); drawWave();
+  var D=der();
+  var band=lastBand*100, flick=lastFlick*100;
+  var bCls=pctCls(band,4,13), fCls=pctCls(flick,4,12);
+  $('#mBand').textContent=(band<1?'<1':band.toFixed(0))+'%'; $('#mBand').className='val '+bCls;
+  $('#mFlick').textContent=(flick<1?'<1':flick.toFixed(0))+'%'; $('#mFlick').className='val '+fCls;
+
+  var worst = (bCls==='bad'||fCls==='bad')?'bad':(bCls==='mild'||fCls==='mild')?'mild':'ok';
+  var v=$('#verdict'); v.className='verdict '+worst;
+  if(worst==='ok'){
+    $('#vIcn').textContent='✓'; $('#vTitle').textContent='Looks clean on this camera';
+    $('#vText').textContent='This combination captures a whole, even set of light bursts. Expect little or no visible banding at these settings.';
+  } else if(worst==='mild'){
+    $('#vIcn').textContent='!'; $('#vTitle').textContent='Mild banding possible';
+    $('#vText').textContent='Some scanline or flicker structure will show, especially on dark or plain areas of the image. Worth confirming on the real system.';
+  } else {
+    $('#vIcn').textContent='✕'; $('#vTitle').textContent='Visible scanlines / banding likely';
+    $('#vText').textContent='This camera will record clear horizontal bands or frame-to-frame flicker. See the tips to fix it.';
+  }
+
+  // tips
+  var tips=[];
+  if(Math.abs(D.cadence-Math.round(D.cadence))>0.01)
+    tips.push('<b>Content frame rate mismatch.</b> '+S.contentFps+' fps into a '+S.frame+' Hz output does not divide evenly &mdash; produce content at 25 or 50 fps.');
+  if(D.beat>0.5)
+    tips.push('<b>Camera frame rate beats the display</b> ('+D.beat.toFixed(1)+' Hz). Set the camera to '+S.frame+' or '+(S.frame/2)+' fps, or genlock it.');
+  if(band>12 && S.roll && !S.sync)
+    tips.push('<b>Rolling-shutter banding.</b> Genlock the camera, use a global-shutter body, or try the camera&rsquo;s anti-flicker / synchro shutter.');
+  if(band>10 && D.N>=10)
+    tips.push('<b>High scan ratio (1/'+D.N+').</b> Each row is lit only briefly, which makes scanlines easy for a camera to resolve. A lower-scan panel (1/2&ndash;1/8) is much more forgiving.');
+  if(flick>10){
+    var good=nice(D);
+    tips.push('<b>Try a different shutter speed.</b> '+(good.length? 'Values that catch a whole number of bursts here: '+good.map(function(x){return '1/'+x;}).join(', ')+'.' : 'Slower shutter speeds average out the flicker.'));
+  }
+  if(S.bright<30 && (band>6||flick>6))
+    tips.push('<b>Low brightness makes it worse.</b> The light bursts get shorter and the gaps longer. Running the wall brighter is the quickest fix; dark image content behaves the same way.');
+  if(S.ref<4800 && (band>8||flick>8))
+    tips.push('<b>Raise the grayscale refresh.</b> Going from '+S.ref+' Hz toward 7680&ndash;15360 Hz packs the light into more, shorter bursts that the camera averages more easily.');
+  if(!tips.length)
+    tips.push('These settings are a good match. Keep the camera frame rate locked to the display and re-check if the operating brightness changes.');
+  $('#tips').innerHTML=tips.map(function(t){return '<li>'+t+'</li>';}).join('');
+}
+function nice(D){
+  var out=[], f=S.ref;
+  for(var n=1;n<=64;n*=2){ var den=f/n; if(den<40||den>4000)continue;
+    var near=SHUTS.reduce(function(p,c){return Math.abs(c-den)<Math.abs(p-den)?c:p;});
+    if(Math.abs(near-den)/den<0.08 && out.indexOf(near)<0) out.push(near);
+  }
+  return out.sort(function(a,b){return a-b;});
+}
+
+/* ---------- build controls ---------- */
+function chips(host,arr,cur,unit,fn){
+  host.innerHTML=arr.map(function(v){return '<button data-v="'+v+'" aria-pressed="'+(v===cur)+'">'+v+'</button>';}).join('');
+  $$('#'+host.id+' button').forEach(function(b){
+    b.onclick=function(){ $$('#'+host.id+' button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b));}); fn(+b.dataset.v); };
   });
 }
-function fullRecompute(){ maybeRebuild(); refreshValueLabels(); D=der(); lastSpectrum=null; drawFrame(D); drawWave(D); drawAnalysis(D); renderResults(D); }
-
-/* ---------- URL HASH ---------- */
-var hashKeys=['frameRate','contentFps','scheme','scramble','pam','refresh','bits','gclk','scanN','oe','minPulseNs','gamma','bright','dimSplit','content','level','rTrim','gTrim','bTrim','camFps','shutterMode','shutterUs','shutterAngle','genlock','rolling','readoutMs','phase','analysis','chSplit','waveSpanFrames'];
-var hashTimer=0, hashDirty=false;
-function clearHash(){ hashDirty=true; }
-function scheduleHash(){ if(hashTimer)clearTimeout(hashTimer); hashTimer=setTimeout(writeHash,400); }
-function writeHash(){
-  var o={}; hashKeys.forEach(function(k){ o[k]= (S[k]===true?1:S[k]===false?0: (typeof S[k]==='number'? +(+S[k]).toFixed(3): S[k])); });
-  history.replaceState(null,'','#'+encodeURIComponent(JSON.stringify(o)));
+function scanWord(n){ return n<=1?'static drive':n<=4?'low scan':n<=9?'medium scan':n<=16?'higher scan':'high scan'; }
+function buildControls(){
+  chips($('#cFrame'),FRAMES,S.frame,'Hz',function(v){S.frame=v;$('#vFrame').textContent=v+' Hz';go();});
+  chips($('#cRef'),REFS,S.ref,'Hz',function(v){S.ref=v;$('#vRef').textContent=v+' Hz';go();});
+  chips($('#cCam'),CAMS,S.cam,'fps',function(v){S.cam=v;$('#vCam').textContent=v+' fps';go();});
+  var rs=$('#rScan'); rs.max=SCANS.length-1; rs.value=S.scanIx;
+  rs.oninput=function(){ S.scanIx=+rs.value; syncScan(); go(); };
+  var rsh=$('#rShut'); rsh.max=SHUTS.length-1; rsh.value=S.shutIx;
+  rsh.oninput=function(){ S.shutIx=+rsh.value; $('#vShut').textContent='1/'+SHUTS[S.shutIx]+' s'; go(); };
+  $('#rBright').value=S.bright;
+  $('#rBright').oninput=function(){ S.bright=+$('#rBright').value; $('#vBright').textContent=S.bright+'%'; go(); };
+  $('#tRoll').checked=S.roll; $('#tRoll').onchange=function(){S.roll=$('#tRoll').checked;go();};
+  $('#tSync').checked=S.sync; $('#tSync').onchange=function(){S.sync=$('#tSync').checked;go();};
+  // pictures
+  var ph='';
+  Object.keys(IMGS).forEach(function(k){
+    ph+='<button data-c="'+k+'" aria-pressed="'+(S.content===k)+'"><img src="'+IMGS[k].thumb+'" alt=""></button>';
+  });
+  Object.keys(PATTERNS).forEach(function(k){
+    ph+='<button class="pat" data-c="'+k+'" aria-pressed="'+(S.content===k)+'">'+PATTERNS[k].name.replace('\n','<br>')+'</button>';
+  });
+  $('#pics').innerHTML=ph;
+  $$('#pics button').forEach(function(b){ b.onclick=function(){
+    S.content=b.dataset.c; $$('#pics button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b));}); go();
+  };});
+  syncScan();
 }
-function readHash(){
-  try{
-    var raw=decodeURIComponent(location.hash.slice(1)); if(!raw)return false;
-    var o=JSON.parse(raw);
-    hashKeys.forEach(function(k){ if(k in o){ if(k==='scramble'||k==='pam'||k==='genlock'||k==='rolling'||k==='chSplit') S[k]=!!o[k]; else S[k]=o[k]; } });
-    return true;
-  }catch(e){ return false; }
+function syncScan(){
+  var n=SCANS[S.scanIx];
+  $('#vScan').textContent='1 / '+n;
+  $('#scanHint').textContent=scanWord(n)+' — each LED lit ~'+(100/n).toFixed(n>9?1:0)+'% of the time';
 }
 
-/* ---------- WIRE TOP BAR ---------- */
-function initTopbar(){
-  var ps=$('#presetSel');
-  ps.innerHTML='<option value="">— presets —</option>'+Object.keys(PRESETS).map(function(n){return '<option>'+n+'</option>';}).join('');
-  ps.onchange=function(){ var p=PRESETS[ps.value]; if(!p)return;
-    Object.keys(S).forEach(function(k){});
-    // reset to defaults then apply
-    for(var k in p){ S[k]=p[k]; }
-    ['scramble','pam','genlock','rolling','chSplit'].forEach(function(k){ if(!(k in p) && k in DEFAULTS) S[k]=DEFAULTS[k]; });
-    buildControls(); fullRecompute(); toast('Loaded: '+ps.value); ps.value='';
-  };
-  $('#themeBtn').onclick=function(){ var cur=document.documentElement.getAttribute('data-theme');
-    var nx=cur==='light'?null:'light'; if(nx)document.documentElement.setAttribute('data-theme',nx); else document.documentElement.removeAttribute('data-theme');
-    try{localStorage.setItem('pwm-theme',nx||'dark');}catch(e){} fullRecompute();
-  };
-  $('#helpBtn').onclick=function(){ $('#helpOverlay').hidden=false; };
-  $('#helpClose').onclick=function(){ $('#helpOverlay').hidden=true; };
-  $('#helpOverlay').onclick=function(e){ if(e.target===$('#helpOverlay')) $('#helpOverlay').hidden=true; };
-  document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ $('#helpOverlay').hidden=true; $('#exportMenu').hidden=true; } if(e.key===' '&&e.target===document.body){ e.preventDefault(); togglePlay(); } });
-  $('#railToggle').onclick=function(){ $('#controls').classList.toggle('open'); };
-  $('#playBtn').onclick=togglePlay;
-  $('#pinBtn').onclick=function(){ pinnedA={ name:(presetName()||'config'), S:JSON.parse(JSON.stringify(S)), D:der(), m:lastMetrics||computeMetrics(der()) }; renderResults(D); toast('Pinned as reference A'); };
-  $('#clearPin').onclick=function(){ pinnedA=null; renderResults(D); };
-  $('#exportBtn').onclick=function(e){ e.stopPropagation(); $('#exportMenu').hidden=!$('#exportMenu').hidden; };
-  document.addEventListener('click',function(){ $('#exportMenu').hidden=true; });
-  $('#exportMenu').onclick=function(e){ e.stopPropagation(); var x=e.target.dataset.x; if(x) doExport(x); $('#exportMenu').hidden=true; };
-  // stage viz tools
-  $$('#vizFrame [data-fmode]').forEach(function(b){ b.onclick=function(){ S.rolling=(b.dataset.fmode==='rolling'); $$('#vizFrame [data-fmode]').forEach(function(x){x.classList.toggle('on',x===b);}); buildControls(); fullRecompute(); };});
-  $('#chOverlay').onclick=function(){ S.chSplit=!S.chSplit; $('#chOverlay').classList.toggle('on',S.chSplit); onChange(false); };
-  $('#waveZoomIn').onclick=function(){ S.waveSpanFrames=Math.max(1,S.waveSpanFrames/2); $('#waveSpan').textContent=fmtSpan(); onChange(false); };
-  $('#waveZoomOut').onclick=function(){ S.waveSpanFrames=Math.min(16,S.waveSpanFrames*2); $('#waveSpan').textContent=fmtSpan(); onChange(false); };
-  $$('#analysisTabs button').forEach(function(b){ b.onclick=function(){ S.analysis=b.dataset.tab; $$('#analysisTabs button').forEach(function(x){x.classList.toggle('on',x===b);}); drawAnalysis(D); scheduleHash(); };});
-}
-function fmtSpan(){ return S.waveSpanFrames<1? (S.waveSpanFrames+' frame') : S.waveSpanFrames+' frame'+(S.waveSpanFrames>1?'s':''); }
-function presetName(){ for(var n in PRESETS){ var p=PRESETS[n],ok=true; for(var k in p){ if(String(S[k])!==String(p[k])) ok=false; } if(ok) return n; } return null; }
-
-/* ---------- PLAY / animate ---------- */
-function togglePlay(){ animOn=!animOn; $('#playBtn').classList.toggle('on',animOn); $('#playBtn').textContent=animOn?'❚❚ Pause':'▶ Run';
-  if(animOn && !RM){ tick(); } else { cancelAnimationFrame(animRAF); } }
-var animT0=0;
-function tick(){
+/* ---------- animation ---------- */
+var compareOn=true;
+$('#btnCompare').onclick=function(){ compareOn=!compareOn; $('#btnCompare').classList.toggle('on',compareOn); drawCam(); };
+$('#btnWave').onclick=function(){ var b=$('#waveBody'); b.hidden=!b.hidden; $('#btnWave').classList.toggle('on',!b.hidden); if(!b.hidden)drawWave(); };
+$('#btnMove').onclick=function(){ animOn=!animOn; $('#btnMove').classList.toggle('on',animOn); $('#btnMove').textContent=animOn?'❚❚ Stop':'▶ See it move';
+  if(animOn && !RM) loop(); else cancelAnimationFrame(animRAF);
+};
+function loop(){
   if(!animOn) return;
-  var win=beatWindow(D);
-  animPhaseAdd += win/420;                    // traverse one beat in ~7 s at 60fps
-  if(animPhaseAdd>win){ animPhaseAdd-=win; frameIndex++; }
-  drawFrame(D);
-  if(S.analysis==='film'||S.analysis==='phase') drawAnalysis(D);
-  var m=computeMetrics(D); // cheap-ish; keep tiles live
-  animRAF=requestAnimationFrame(tick);
+  var D=der();
+  var w=S.sync?D.Tf:(D.beat>0.02?US/D.beat:D.Tf);
+  animPhase += w/240;
+  drawCam(); drawWave();
+  animRAF=requestAnimationFrame(loop);
 }
 
-/* ---------- EXPORT ---------- */
-function doExport(kind){
-  if(kind==='link'){ writeHash(); navigator.clipboard && navigator.clipboard.writeText(location.href); toast('Link copied'); return; }
-  if(kind==='png'){ $('#frameCanvas').toBlob(function(b){ dl(b,'pwm-capture.png'); }); return; }
-  if(kind==='csv'){
-    var sch=schedule(D,D.dutyW,0), rows=['t_us,emission'];
-    for(var t=0;t<D.Tf*2;t+=D.Tf*2/4000) rows.push(t.toFixed(2)+','+emit(sch,t).toFixed(4));
-    dl(new Blob([rows.join('\n')],{type:'text/csv'}),'pwm-waveform.csv'); return;
-  }
-  if(kind==='json'){
-    var m=computeMetrics(D);
-    var out={ model:'simplified linear PWM — illustrative', config:S, derived:{
-      framePeriod_us:D.Tf, pwmFundamental_Hz:D.pwmFund, rowScanFreq_Hz:D.rowScanFreq, subPeriods_K:D.K,
-      exposure_us:D.texp, feasible:D.feasible, refreshCeiling_Hz:D.refreshCeil },
-      metrics:{ onCameraFlicker_pp_pct:m.sw.pp*100, bandContrast_pct:m.band*100, percentFlicker:m.fl.pf, flickerIndex:m.fl.fi, captureRatioMean_pct:m.sw.mean*100, directVisionRisk:m.risk.t } };
-    dl(new Blob([JSON.stringify(out,null,2)],{type:'application/json'}),'pwm-config.json'); return;
-  }
+/* ---------- misc buttons ---------- */
+$('#btnMatch').onclick=function(){ S.cam=S.frame; $('#vCam').textContent=S.cam+' fps'; buildControls(); go(); };
+$('#btnReset').onclick=function(){ S=Object.assign({},DEF); buildControls(); syncAllLabels(); go(); writeHash(); };
+$('#btnPng').onclick=function(){ $('#cam').toBlob(function(b){ var a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='pwm-camera-check.png'; a.click(); setTimeout(function(){URL.revokeObjectURL(a.href)},1000); }); };
+$('#btnLink').onclick=function(){ writeHash(); if(navigator.clipboard) navigator.clipboard.writeText(location.href); var t=$('#btnLink'); t.textContent='Copied ✓'; setTimeout(function(){t.textContent='Copy link'},1400); };
+
+function syncAllLabels(){
+  $('#vFrame').textContent=S.frame+' Hz'; $('#vRef').textContent=S.ref+' Hz'; $('#vCam').textContent=S.cam+' fps';
+  $('#vBright').textContent=S.bright+'%'; $('#vShut').textContent='1/'+SHUTS[S.shutIx]+' s'; syncScan();
 }
-function dl(blob,name){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(a.href);},1500); }
 
-/* ---------- INIT ---------- */
-var DEFAULTS=JSON.parse(JSON.stringify(S));
-(function init(){
-  try{ if(localStorage.getItem('pwm-theme')==='light') document.documentElement.setAttribute('data-theme','light'); }catch(e){}
-  readHash();
-  buildControls();
-  initTopbar();
-  $('#waveSpan').textContent=fmtSpan();
-  $$('#analysisTabs button').forEach(function(b){ b.classList.toggle('on', b.dataset.tab===S.analysis); });
-  $('#chOverlay').classList.toggle('on',S.chSplit);
-  $$('#vizFrame [data-fmode]').forEach(function(b){ b.classList.toggle('on', (b.dataset.fmode==='rolling')===!!S.rolling); });
-  D=der();
-  fullRecompute();
-  window.addEventListener('resize',function(){ clearTimeout(window._rz); window._rz=setTimeout(fullRecompute,180); });
-})();
+/* ---------- hash ---------- */
+var hkeys=['frame','contentFps','ref','scanIx','bright','content','cam','shutIx','roll','sync'];
+function writeHash(){ var o={}; hkeys.forEach(function(k){o[k]=S[k]===true?1:S[k]===false?0:S[k];}); history.replaceState(null,'','#'+encodeURIComponent(JSON.stringify(o))); }
+function readHash(){ try{ var o=JSON.parse(decodeURIComponent(location.hash.slice(1))); hkeys.forEach(function(k){ if(k in o){ if(k==='roll'||k==='sync')S[k]=!!o[k]; else S[k]=o[k]; } }); return true; }catch(e){ return false; } }
 
+var goT=0;
+function go(){ if(goT)cancelAnimationFrame(goT); goT=requestAnimationFrame(function(){ recompute(); writeHash(); }); }
+
+/* ---------- init ---------- */
+readHash();
+loadImages(function(){
+  buildControls(); syncAllLabels(); recompute();
+});
+window.addEventListener('resize',function(){ clearTimeout(window._rz); window._rz=setTimeout(recompute,160); });
 })();
 </script>
 </body>

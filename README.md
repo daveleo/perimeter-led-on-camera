@@ -13,7 +13,9 @@ illustrative, not a circuit description.
 | File | Purpose |
 |---|---|
 | `index.html` | Interactive single-page site — 19 sections + one-page field guide, animated PWM/scope visualisations, a PWM waveform explorer, shutter charts, a troubleshooting decision tree, a commissioning checklist and a downloadable CSV test template. Self-contained: no build step, no external JavaScript. |
-| `tools/pwm-explorer/index.html` | **PWM &amp; Camera Simulator** — a standalone engineering tool. Models PWM scheme (conventional / S-PWM / BCM), grayscale refresh, scan ratio, driver GCLK / bit-depth limits, dimming-method split and camera exposure, and produces a simulated rolling-shutter capture, a flicker spectrum with the shutter's frequency response, phase / shutter-sweep analysis, a filmstrip, flicker metrics, a driver-feasibility estimate and generated recommendations. Presets, A/B compare, shareable-link state, PNG / CSV / JSON export. |
+| `tools/pwm-explorer/index.html` | **PWM &amp; Camera Check** — the simple, end-user tool. Output frame rate, content frame rate, grayscale refresh (3200–15360 Hz), a wide range of scan ratios, a real photo or test pattern, brightness, and camera frame rate / shutter / rolling-shutter / genlock. Shows a split "naked eye vs this camera" simulated recording, a plain-language verdict, banding / flicker readings and fix-it tips. Driver grayscale locked at 14-bit. |
+| `tools/pwm-explorer/advanced.html` | **Advanced simulator** — adds PWM scheme (conventional / S-PWM / BCM), driver GCLK / bit-depth limits, OE loss, dimming-method split, per-channel RGB, cine shutter angle, a flicker spectrum with the shutter's frequency response, phase / shutter-sweep charts, a filmstrip, a driver-feasibility estimate, A/B compare and PNG / CSV / JSON export. |
+| `tools/pwm-explorer/img-data.js` | Demo photographs (Lorem Picsum / Unsplash License) embedded for the Check tool. |
 | `PWM_On-Camera_Performance_LED_Perimeter.md` | Plain-text source of record (same material, Markdown). |
 
 ## Publishing to GitHub Pages
