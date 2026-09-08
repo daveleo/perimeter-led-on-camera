@@ -119,7 +119,10 @@ canvas{display:block;width:100%;border-radius:4px}
 .f:first-of-type{margin-top:0}
 .f .lab{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;margin-bottom:.4rem}
 .f .lab .n{font-size:.85rem;color:var(--ink-2)}
-.f .lab .v{font-family:"IBM Plex Mono",monospace;font-size:.82rem;color:var(--accent);font-weight:500}
+.f .lab .v{font-family:"IBM Plex Mono",monospace;font-size:.82rem;color:var(--accent);font-weight:500;display:inline-flex;align-items:baseline;gap:.25rem}
+.vnum{width:3.4em;font-family:"IBM Plex Mono",monospace;font-size:.82rem;color:var(--accent);font-weight:600;background:var(--card-2);border:1px solid var(--line);border-radius:5px;padding:.12rem .35rem;text-align:right;-moz-appearance:textfield}
+.vnum::-webkit-outer-spin-button,.vnum::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.vnum:focus{border-color:var(--accent);outline:none}
 .chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(50px,1fr));gap:.3rem}
 .chips button{font-family:"IBM Plex Mono",monospace;font-size:.78rem;border:1px solid var(--line);border-radius:7px;background:var(--card-2);color:var(--ink-2);padding:.4rem .2rem}
 .chips button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#04211f;font-weight:600}
@@ -168,8 +171,6 @@ canvas{display:block;width:100%;border-radius:4px}
     PWM &amp; Camera Check
   </h1>
   <span class="sub">Will this LED display look clean on this camera &mdash; or show scanlines and banding?</span>
-  <a class="lnk" href="advanced.html">Advanced tool &nearr;</a>
-  <a class="lnk" href="../../index.html">White paper &nearr;</a>
   <button class="lnk" id="themeBtn" aria-label="Toggle theme">◐ Theme</button>
 </header>
 
@@ -238,8 +239,10 @@ canvas{display:block;width:100%;border-radius:4px}
             <div class="chips" id="cRef"></div>
           </div>
           <div class="f">
-            <div class="lab"><span class="n">Scan ratio</span><span class="v" id="vScan">1 / 13</span></div>
-            <input type="range" id="rScan" min="0" max="0" value="0">
+            <div class="lab"><span class="n">Scan ratio</span>
+              <span class="v"><span style="color:var(--ink-3);font-weight:400">1 /</span> <input type="number" id="nScan" class="vnum" min="1" max="128" step="1" value="13" inputmode="numeric" aria-label="Scan ratio denominator"></span>
+            </div>
+            <input type="range" id="rScan" min="1" max="128" step="1" value="13">
             <div class="scanhint" id="scanHint"></div>
           </div>
         </div>
@@ -276,7 +279,7 @@ canvas{display:block;width:100%;border-radius:4px}
 </div>
 
 <footer class="foot">
-  Simplified engineering model for building intuition, not a substitute for measurement. Real driver ICs use proprietary pulse scheduling this cannot reproduce. Driver grayscale locked at 14-bit. Confirm critical setups on the real system with a photodiode and oscilloscope, or use the <a href="advanced.html">advanced tool</a>. &nbsp;Demo photographs: Lorem&nbsp;Picsum / Unsplash License.
+  Simplified engineering model for building intuition, not a substitute for measurement. Real driver ICs use proprietary pulse scheduling this cannot reproduce. Driver grayscale locked at 14-bit. Confirm critical setups on the real system with a photodiode and oscilloscope. &nbsp;Demo photographs: Lorem&nbsp;Picsum / Unsplash License.
 </footer>
 
 <script src="img-data.js"></script>
@@ -292,10 +295,10 @@ var RM=window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches;
 var FRAMES=[24,25,30,50,60];
 var CAMS=[24,25,30,50,60];
 var REFS=[3200,3840,4800,6400,7680,9600,11520,15360];
-var SCANS=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,18,20,22,24,26,28,30,32,36,40,44,48,56,64];
 var SHUTS=[50,60,100,125,160,200,250,320,400,500,640,800,1000,1250,1600,2000];
+var SCAN_MIN=1, SCAN_MAX=128;
 
-var DEF={frame:50,contentFps:25,ref:3840,scanIx:12,bright:85,content:'fjord',cam:50,shutIx:12,roll:true,sync:false};
+var DEF={frame:50,contentFps:25,ref:3840,scanN:13,bright:85,content:'fjord',cam:50,shutIx:12,roll:true,sync:false};
 var S=Object.assign({},DEF);
 
 /* ---------- theme ---------- */
@@ -364,7 +367,7 @@ function der(){
   d.Tf=US/S.frame;
   d.Tcam=US/S.cam;
   d.texp=US/SHUTS[S.shutIx];
-  d.N=SCANS[S.scanIx];
+  d.N=clamp(Math.round(S.scanN)||1,SCAN_MIN,SCAN_MAX);
   d.K=Math.max(1,Math.round(S.ref/S.frame));   // sub-periods per frame
   d.Tsub=d.Tf/d.K;
   d.rowWin=d.Tsub/d.N;
@@ -554,13 +557,18 @@ function chips(host,arr,cur,unit,fn){
     b.onclick=function(){ $$('#'+host.id+' button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b));}); fn(+b.dataset.v); };
   });
 }
-function scanWord(n){ return n<=1?'static drive':n<=4?'low scan':n<=9?'medium scan':n<=16?'higher scan':'high scan'; }
+function scanWord(n){ return n<=1?'static drive':n<=4?'low scan':n<=9?'medium scan':n<=16?'higher scan':n<=32?'high scan':n<=64?'very high scan':'extreme scan'; }
 function buildControls(){
   chips($('#cFrame'),FRAMES,S.frame,'Hz',function(v){S.frame=v;$('#vFrame').textContent=v+' Hz';go();});
   chips($('#cRef'),REFS,S.ref,'Hz',function(v){S.ref=v;$('#vRef').textContent=v+' Hz';go();});
   chips($('#cCam'),CAMS,S.cam,'fps',function(v){S.cam=v;$('#vCam').textContent=v+' fps';go();});
-  var rs=$('#rScan'); rs.max=SCANS.length-1; rs.value=S.scanIx;
-  rs.oninput=function(){ S.scanIx=+rs.value; syncScan(); go(); };
+  var rs=$('#rScan'), ns=$('#nScan');
+  rs.min=SCAN_MIN; rs.max=SCAN_MAX; ns.min=SCAN_MIN; ns.max=SCAN_MAX;
+  rs.value=S.scanN; ns.value=S.scanN;
+  rs.oninput=function(){ S.scanN=+rs.value; ns.value=S.scanN; syncScan(); go(); };
+  function commitScan(){ var v=clamp(Math.round(+ns.value||1),SCAN_MIN,SCAN_MAX); S.scanN=v; ns.value=v; rs.value=v; syncScan(); go(); }
+  ns.oninput=function(){ if(ns.value==='')return; var v=+ns.value; if(v>=SCAN_MIN&&v<=SCAN_MAX){ S.scanN=Math.round(v); rs.value=S.scanN; syncScan(); go(); } };
+  ns.onchange=commitScan; ns.onblur=commitScan;
   var rsh=$('#rShut'); rsh.max=SHUTS.length-1; rsh.value=S.shutIx;
   rsh.oninput=function(){ S.shutIx=+rsh.value; $('#vShut').textContent='1/'+SHUTS[S.shutIx]+' s'; go(); };
   $('#rBright').value=S.bright;
@@ -582,8 +590,9 @@ function buildControls(){
   syncScan();
 }
 function syncScan(){
-  var n=SCANS[S.scanIx];
-  $('#vScan').textContent='1 / '+n;
+  var n=clamp(Math.round(S.scanN)||1,SCAN_MIN,SCAN_MAX);
+  var ns=$('#nScan'); if(ns && document.activeElement!==ns) ns.value=n;
+  var rs=$('#rScan'); if(rs) rs.value=n;
   $('#scanHint').textContent=scanWord(n)+' — each LED lit ~'+(100/n).toFixed(n>9?1:0)+'% of the time';
 }
 
@@ -615,7 +624,7 @@ function syncAllLabels(){
 }
 
 /* ---------- hash ---------- */
-var hkeys=['frame','contentFps','ref','scanIx','bright','content','cam','shutIx','roll','sync'];
+var hkeys=['frame','contentFps','ref','scanN','bright','content','cam','shutIx','roll','sync'];
 function writeHash(){ var o={}; hkeys.forEach(function(k){o[k]=S[k]===true?1:S[k]===false?0:S[k];}); history.replaceState(null,'','#'+encodeURIComponent(JSON.stringify(o))); }
 function readHash(){ try{ var o=JSON.parse(decodeURIComponent(location.hash.slice(1))); hkeys.forEach(function(k){ if(k in o){ if(k==='roll'||k==='sync')S[k]=!!o[k]; else S[k]=o[k]; } }); return true; }catch(e){ return false; } }
 
