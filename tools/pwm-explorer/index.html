@@ -268,9 +268,6 @@ canvas{display:block;width:100%;border-radius:4px}
           </div>
           <label class="toggle"><input type="checkbox" id="tRoll" checked><span class="sw"></span><span>Rolling shutter (most cameras)</span></label>
           <label class="toggle"><input type="checkbox" id="tSync"><span class="sw"></span><span>Camera synced to display (genlock)</span></label>
-          <div class="btnrow">
-            <button class="btn" id="btnMatch">Match camera to display</button>
-          </div>
         </div>
 
       </div>
@@ -600,9 +597,14 @@ function syncScan(){
 var compareOn=true;
 $('#btnCompare').onclick=function(){ compareOn=!compareOn; $('#btnCompare').classList.toggle('on',compareOn); drawCam(); };
 $('#btnWave').onclick=function(){ var b=$('#waveBody'); b.hidden=!b.hidden; $('#btnWave').classList.toggle('on',!b.hidden); if(!b.hidden)drawWave(); };
-$('#btnMove').onclick=function(){ animOn=!animOn; $('#btnMove').classList.toggle('on',animOn); $('#btnMove').textContent=animOn?'❚❚ Stop':'▶ See it move';
-  if(animOn && !RM) loop(); else cancelAnimationFrame(animRAF);
-};
+function setMove(on){
+  animOn = on && !RM;
+  var b=$('#btnMove');
+  b.classList.toggle('on',animOn);
+  b.textContent=animOn?'❚❚ Stop':'▶ See it move';
+  if(animOn) loop(); else cancelAnimationFrame(animRAF);
+}
+$('#btnMove').onclick=function(){ setMove(!animOn); };
 function loop(){
   if(!animOn) return;
   var D=der();
@@ -613,8 +615,7 @@ function loop(){
 }
 
 /* ---------- misc buttons ---------- */
-$('#btnMatch').onclick=function(){ S.cam=S.frame; $('#vCam').textContent=S.cam+' fps'; buildControls(); go(); };
-$('#btnReset').onclick=function(){ S=Object.assign({},DEF); buildControls(); syncAllLabels(); go(); writeHash(); };
+$('#btnReset').onclick=function(){ S=Object.assign({},DEF); buildControls(); syncAllLabels(); setMove(animOn); go(); writeHash(); };
 $('#btnPng').onclick=function(){ $('#cam').toBlob(function(b){ var a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='pwm-camera-check.png'; a.click(); setTimeout(function(){URL.revokeObjectURL(a.href)},1000); }); };
 $('#btnLink').onclick=function(){ writeHash(); if(navigator.clipboard) navigator.clipboard.writeText(location.href); var t=$('#btnLink'); t.textContent='Copied ✓'; setTimeout(function(){t.textContent='Copy link'},1400); };
 
@@ -634,7 +635,7 @@ function go(){ if(goT)cancelAnimationFrame(goT); goT=requestAnimationFrame(funct
 /* ---------- init ---------- */
 readHash();
 loadImages(function(){
-  buildControls(); syncAllLabels(); recompute();
+  buildControls(); syncAllLabels(); recompute(); setMove(true);
 });
 window.addEventListener('resize',function(){ clearTimeout(window._rz); window._rz=setTimeout(recompute,160); });
 })();
