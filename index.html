@@ -289,12 +289,11 @@ td.num,th.num{text-align:right;font-family:"IBM Plex Mono",monospace;font-varian
 .chip{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.03em;padding:.3rem .55rem;border:1px solid var(--line);border-radius:20px;color:var(--ink-2);background:var(--surface)}
 
 /* ============================================================= SIGNAL CHAIN */
-.chain{display:flex;flex-direction:column;gap:.5rem}
-.chain-row{display:flex;gap:.5rem;align-items:stretch;flex-wrap:wrap}
+.chain{display:block}
+.chain > .stage + .stage{margin-top:.5rem}
 .stage{
-  flex:1 1 150px;min-width:150px;
   border:1px solid var(--line);border-radius:9px;background:var(--surface);
-  padding:0;overflow:hidden;
+  overflow:hidden;
 }
 .stage > summary{
   list-style:none;cursor:pointer;padding:.7rem .8rem;display:flex;flex-direction:column;gap:.2rem;
